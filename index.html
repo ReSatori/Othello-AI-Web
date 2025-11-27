@@ -141,6 +141,10 @@
         const MASK_CORNER = 0x8100000000000081n;
         const MASK_X_SQUARES = 0x0042000000004200n;
         const MASK_C_SQUARES = 0x4281000000008142n;
+
+        // 边界掩码 (防止左右移动时穿过边界)
+        const NOT_A_FILE = 0xfefefefefefefefen; // ~Col A
+        const NOT_H_FILE = 0x7f7f7f7f7f7f7f7fn; // ~Col H
         
         // Zobrist Hash 表
         let zobristTable = [];
@@ -187,21 +191,17 @@
             let empty = ~(own | opp);
             let candidates = 0n;
             
-            // 8个方向的位移逻辑
-            // 左右需处理边界 wrap-around，使用 mask 0x7E7E...
-            const maskLR = 0x7e7e7e7e7e7e7e7en;
-            
-            // 辅助函数：沿方向 dir 搜索夹住的子
-            // dirFn: 移位函数, mask: 边界掩码
+            // 8个方向的位移生成器
+            // 使用正确的 NOT_A / NOT_H 掩码防止环绕
             const shifts = [
-                (b) => (b << 1n) & maskLR, // East
-                (b) => (b >> 1n) & maskLR, // West
-                (b) => (b << 8n),          // South
-                (b) => (b >> 8n),          // North
-                (b) => (b << 9n) & maskLR, // SouthEast
-                (b) => (b >> 7n) & maskLR, // NorthEast
-                (b) => (b << 7n) & maskLR, // SouthWest
-                (b) => (b >> 9n) & maskLR  // NorthWest
+                (b) => (b & NOT_H_FILE) << 1n, // East (+1)
+                (b) => (b & NOT_A_FILE) >> 1n, // West (-1)
+                (b) => (b << 8n),              // South (+8)
+                (b) => (b >> 8n),              // North (-8)
+                (b) => (b & NOT_H_FILE) << 9n, // SouthEast (+9)
+                (b) => (b & NOT_A_FILE) >> 7n, // NorthEast (-7)
+                (b) => (b & NOT_A_FILE) << 7n, // SouthWest (+7)
+                (b) => (b & NOT_H_FILE) >> 9n  // NorthWest (-9)
             ];
 
             for (let shift of shifts) {
@@ -218,42 +218,11 @@
         }
 
         // 计算翻转的棋子 (不改变状态，只返回翻转位的掩码)
+        // 修正版：移除了导致死循环的错误代码块
         function getFlips(move, own, opp) {
             let flips = 0n;
-            let m = 1n << BigInt(move);
-            const maskLR = 0x7e7e7e7e7e7e7e7en;
-
-            const dirs = [1n, -1n, 8n, -8n, 9n, -7n, 7n, -9n];
-            
-            for (let dir of dirs) {
-                let mask = 0n;
-                let current = m;
-                // 是否需要水平边界检查
-                let checkLR = (dir === 1n || dir === -1n || dir === 9n || dir === -7n || dir === 7n || dir === -9n);
-
-                while (true) {
-                    if (checkLR) {
-                         // 检查是否将移出边界
-                         if (((current >> 1n) & 0x8080808080808080n) && (dir === 1n || dir === 9n || dir === -7n)) break; // Right edge
-                         if (((current << 1n) & 0x0101010101010101n) && (dir === -1n || dir === -9n || dir === 7n)) break; // Left edge
-                         // (简化的边界检查，实际上直接位移后 & maskLR 更通用，但这里是逐格检查)
-                    }
-                    
-                    // 实际位移
-                    if (dir > 0) current <<= dir; else current >>= -dir;
-                    
-                    // 检查水平溢出 (更严格)
-                    if (checkLR) {
-                        let prev = (dir > 0) ? (current >> dir) : (current << -dir);
-                        let diff = 0; 
-                        // 这里逻辑稍复杂，改用更稳健的逐格扫描
-                    }
-                }
-            }
-            
-            // 重新实现简化的逐格扫描，确保准确性
+            // 逐格扫描，确保准确性
             for (let dir of [-1, 1, -8, 8, -9, -7, 7, 9]) {
-                let mask = 0n;
                 let r = Math.floor(move / 8);
                 let c = move % 8;
                 let dr = 0, dc = 0;
