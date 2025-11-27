@@ -192,16 +192,16 @@
             let candidates = 0n;
             
             // 8个方向的位移生成器
-            // 使用正确的 NOT_A / NOT_H 掩码防止环绕
+            // 修复 BUG: 之前 NE 和 NW 的掩码写反了，导致对角线移动会发生“穿墙” (H列穿到A列)
             const shifts = [
                 (b) => (b & NOT_H_FILE) << 1n, // East (+1)
                 (b) => (b & NOT_A_FILE) >> 1n, // West (-1)
                 (b) => (b << 8n),              // South (+8)
                 (b) => (b >> 8n),              // North (-8)
                 (b) => (b & NOT_H_FILE) << 9n, // SouthEast (+9)
-                (b) => (b & NOT_A_FILE) >> 7n, // NorthEast (-7)
+                (b) => (b & NOT_H_FILE) >> 7n, // NorthEast (-7) (注意: H列向右上会越界到下一行A列，必须 mask H)
                 (b) => (b & NOT_A_FILE) << 7n, // SouthWest (+7)
-                (b) => (b & NOT_H_FILE) >> 9n  // NorthWest (-9)
+                (b) => (b & NOT_A_FILE) >> 9n  // NorthWest (-9) (注意: A列向左上会越界到上一行H列，必须 mask A)
             ];
 
             for (let shift of shifts) {
