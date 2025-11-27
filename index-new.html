@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>黑白棋大师 - 顶级 AI 版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        .piece-shadow { box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.4), inset 2px 2px 5px rgba(255, 255, 255, 0.2), inset -2px -2px 5px rgba(0, 0, 0, 0.2); }
+        .board-texture { background-color: #2d6b46; }
+        .dot { position: absolute; width: 8px; height: 8px; background-color: rgba(0,0,0,0.3); border-radius: 50%; pointer-events: none; }
+        .thinking-pulse { animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.8; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1); opacity: 0; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { transform: scale(0.8); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- 顶部状态栏 -->
+    <div class="w-full max-w-2xl flex justify-between items-center mb-6 bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700">
+        <div class="flex items-center gap-4">
+            <div class="flex flex-col items-center">
+                <!-- 修复: 添加 ID 以便 JS 更新标签 -->
+                <span id="label-black" class="text-sm text-gray-400 mb-1">黑棋 (玩家)</span>
+                <div class="w-12 h-12 rounded-full bg-black piece-shadow border-2 border-gray-600 flex items-center justify-center text-xl font-bold" id="score-black">2</div>
+            </div>
+            <div class="text-2xl font-bold text-gray-500">VS</div>
+            <div class="flex flex-col items-center">
+                <!-- 修复: 添加 ID 以便 JS 更新标签 -->
+                <span id="label-white" class="text-sm text-gray-400 mb-1">白棋 (AI)</span>
+                <div class="w-12 h-12 rounded-full bg-white piece-shadow text-black flex items-center justify-center text-xl font-bold" id="score-white">2</div>
+            </div>
+        </div>
+        
+        <div class="flex flex-col items-end">
+            <div id="status-text" class="text-lg font-semibold text-green-400">轮到黑棋</div>
+            <div class="text-xs text-gray-500 mt-1 font-mono" id="ai-stats">深度: 0 | 节点: 0 | 耗时: 0ms</div>
+            <div class="text-xs text-blue-400 mt-0.5 font-mono hidden" id="ai-eval">评估: 0</div>
+        </div>
+    </div>
+
+    <!-- 游戏主区域 -->
+    <div class="relative">
+        <div class="bg-[#1a1a1a] p-3 rounded-lg shadow-2xl border-4 border-[#3d2b1f]">
+            <div class="grid grid-cols-8 gap-1 bg-[#1a1a1a] border-2 border-black" id="board" style="width: min(90vw, 500px); height: min(90vw, 500px);"></div>
+            <div class="absolute top-[3px] left-[3px] w-full h-full pointer-events-none z-10" id="dots-container" style="width: min(90vw, 500px); height: min(90vw, 500px);"></div>
+        </div>
+
+        <div id="ai-thinking" class="absolute inset-0 bg-black/20 z-20 hidden flex items-center justify-center rounded-lg">
+            <div class="bg-gray-900/90 text-blue-400 px-6 py-3 rounded-full flex items-center gap-3 border border-blue-500/30 shadow-xl backdrop-blur-sm">
+                <div class="w-3 h-3 bg-blue-500 rounded-full thinking-pulse"></div>
+                <span class="font-bold tracking-wider">AI 思考中...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="w-full max-w-2xl mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <label class="block text-sm text-gray-400 mb-2">AI 强度 (Level <span id="difficulty-val">10</span>)</label>
+            <input type="range" min="1" max="10" value="10" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500" id="difficulty-slider">
+            <div class="flex justify-between text-xs text-gray-500 mt-1">
+                <span>新手</span>
+                <span>普通</span>
+                <span>大师</span>
+                <span class="text-red-400 font-bold">无敌</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+            <button onclick="game.newGame()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg active:transform active:scale-95">
+                新局
+            </button>
+            <button onclick="game.undo()" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg active:transform active:scale-95">
+                悔棋
+            </button>
+            <button onclick="game.switchSide()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg active:transform active:scale-95">
+                换边
+            </button>
+        </div>
+    </div>
+    
+    <div class="mt-4 text-gray-500 text-xs text-center">
+        Powered by PVS / Bitboard / Zobrist Hash / Endgame Solver V3
+    </div>
+
+    <script id="worker-code" type="javascript/worker">
+        const BLACK = 0;
+        const WHITE = 1;
+        const EMPTY = 2;
+        
+        const MASK_CORNER = 0x8100000000000081n;
+        const MASK_X_SQUARES = 0x0042000000004200n;
+        const MASK_C_SQUARES = 0x4281000000008142n;
+
+        const NOT_A_FILE = 0xfefefefefefefefen; 
+        const NOT_H_FILE = 0x7f7f7f7f7f7f7f7fn; 
+        
+        let zobristTable = [];
+        let zobristTurn = 0n;
+
+        // 预计算数据
+        let movesArray = new Int8Array(64); 
+
+        function initAI() {
+            for (let i = 0; i < 64; i++) {
+                zobristTable[i] = [randomBigInt(), randomBigInt()];
+            }
+            zobristTurn = randomBigInt();
+        }
+
+        function randomBigInt() {
+            let n = 0n;
+            for (let i = 0; i < 64; i++) {
+                if (Math.random() > 0.5) n |= (1n << BigInt(i));
+            }
+            return n;
+        }
+
+        function popcnt(b) {
+            let c = 0;
+            while (b > 0n) {
+                b &= (b - 1n);
+                c++;
+            }
+            return c;
+        }
+
+        function getMoves(own, opp) {
+            let empty = ~(own | opp) & 0xffffffffffffffffn;
+            let candidates = 0n;
+            
+            const shifts = [
+                (b) => (b & NOT_H_FILE) << 1n, 
+                (b) => (b & NOT_A_FILE) >> 1n, 
+                (b) => (b << 8n),              
+                (b) => (b >> 8n),              
+                (b) => (b & NOT_H_FILE) << 9n, 
+                (b) => (b & NOT_H_FILE) >> 7n, 
+                (b) => (b & NOT_A_FILE) << 7n, 
+                (b) => (b & NOT_A_FILE) >> 9n  
+            ];
+
+            for (let shift of shifts) {
+                let x = shift(own) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                candidates |= shift(x) & empty;
+            }
+
+            return candidates;
+        }
+
+        function getFlips(move, own, opp) {
+            let flips = 0n;
+            for (let dir of [-1, 1, -8, 8, -9, -7, 7, 9]) {
+                let r = Math.floor(move / 8);
+                let c = move % 8;
+                let dr = 0, dc = 0;
+                
+                if (dir === -1) dc = -1;
+                else if (dir === 1) dc = 1;
+                else if (dir === -8) dr = -1;
+                else if (dir === 8) dr = 1;
+                else if (dir === -9) { dr = -1; dc = -1; }
+                else if (dir === -7) { dr = -1; dc = 1; }
+                else if (dir === 7) { dr = 1; dc = -1; }
+                else if (dir === 9) { dr = 1; dc = 1; }
+
+                let r1 = r + dr, c1 = c + dc;
+                let currentMask = 0n;
+                let valid = false;
+
+                while (r1 >= 0 && r1 < 8 && c1 >= 0 && c1 < 8) {
+                    let idx = r1 * 8 + c1;
+                    let bit = 1n << BigInt(idx);
+                    
+                    if ((opp & bit) !== 0n) {
+                        currentMask |= bit;
+                    } else if ((own & bit) !== 0n) {
+                        valid = true;
+                        break;
+                    } else {
+                        break;
+                    }
+                    r1 += dr; c1 += dc;
+                }
+                if (valid) flips |= currentMask;
+            }
+            return flips;
+        }
+
+        // --- 增强版评估函数权重 ---
+        const WEIGHTS = [
+             120, -25, 10,  5,  5, 10, -25, 120,
+             -25, -60, -2, -2, -2, -2, -60, -25,
+              10,  -2,  5,  1,  1,  5,  -2,  10,
+               5,  -2,  1,  0,  0,  1,  -2,   5,
+               5,  -2,  1,  0,  0,  1,  -2,   5,
+              10,  -2,  5,  1,  1,  5,  -2,  10,
+             -25, -60, -2, -2, -2, -2, -60, -25,
+             120, -25, 10,  5,  5, 10, -25, 120
+        ];
+
+        function evaluate(own, opp, ownMoves, oppMoves, emptyCount) {
+            let score = 0;
+
+            // 1. 位置权重
+            let myPos = own;
+            let opPos = opp;
+            for(let i=0; i<64; i++) {
+                if ((myPos & 1n)) score += WEIGHTS[i];
+                else if ((opPos & 1n)) score -= WEIGHTS[i];
+                myPos >>= 1n;
+                opPos >>= 1n;
+            }
+
+            // 2. 行动力 (Mobility) - 权重提升
+            let myMob = popcnt(ownMoves);
+            let opMob = popcnt(oppMoves);
+            // 中盘行动力非常关键，权重从15提升到25
+            let mobWeight = (emptyCount > 18) ? 25 : 10;
+            score += (myMob - opMob) * mobWeight;
+
+            // 3. 奇偶性 (Parity) - 终局前几步
+            // 如果剩余空位是偶数，后手方通常有优势（最后一步是我的）
+            if (emptyCount < 18) {
+                // 简单估算：每多一个子 10 分
+                score += (popcnt(own) - popcnt(opp)) * 2; 
+            }
+
+            return score;
+        }
+
+        let nodes = 0;
+        let stopSearch = false;
+        let startTime = 0;
+        let timeLimit = 1000;
+
+        function search(own, opp, turn, depth, alpha, beta, passed) {
+            nodes++;
+            
+            if ((nodes & 2047) === 0) {
+                if (Date.now() - startTime > timeLimit) {
+                    stopSearch = true;
+                }
+            }
+            if (stopSearch) return 0;
+
+            let legalMoves = getMoves(own, opp);
+
+            if (legalMoves === 0n) {
+                if (passed) {
+                    let diff = popcnt(own) - popcnt(opp);
+                    if (diff > 0) return 10000 + diff;
+                    if (diff < 0) return -10000 + diff;
+                    return 0;
+                }
+                return -search(opp, own, 1-turn, depth, -beta, -alpha, true);
+            }
+
+            if (depth === 0) {
+                let oppMoves = getMoves(opp, own);
+                let empty = 64 - popcnt(own | opp);
+                return evaluate(own, opp, legalMoves, oppMoves, empty);
+            }
+
+            let moves = [];
+            let temp = legalMoves;
+            while (temp > 0n) {
+                let lsb = temp & -temp;
+                let s = lsb.toString(2);
+                let idx = s.length - 1; 
+
+                // 强制合法性校验
+                if (getFlips(idx, own, opp) !== 0n) {
+                    let sortScore = 0;
+                    if (lsb & MASK_CORNER) sortScore = 1000;
+                    else if (lsb & MASK_X_SQUARES) sortScore = -100;
+                    else if (lsb & MASK_C_SQUARES) sortScore = -50;
+                    moves.push({ bits: lsb, idx: idx, score: sortScore });
+                }
+                
+                temp ^= lsb;
+            }
+
+            if (moves.length === 0) {
+                return -search(opp, own, 1-turn, depth, -beta, -alpha, true);
+            }
+
+            moves.sort((a, b) => b.score - a.score);
+
+            let bestScore = -Infinity;
+            let b = beta;
+            
+            for (let i = 0; i < moves.length; i++) {
+                let m = moves[i];
+                let flips = getFlips(m.idx, own, opp);
+                
+                let newOwn = own | m.bits | flips;
+                let newOpp = opp & ~flips;
+
+                let score;
+                if (i === 0) {
+                    score = -search(newOpp, newOwn, 1-turn, depth - 1, -b, -alpha, false);
+                } else {
+                    score = -search(newOpp, newOwn, 1-turn, depth - 1, -alpha - 1, -alpha, false);
+                    if (score > alpha && score < beta) {
+                        score = -search(newOpp, newOwn, 1-turn, depth - 1, -beta, -alpha, false);
+                    }
+                }
+                
+                if (stopSearch) return 0;
+
+                if (score > bestScore) {
+                    bestScore = score;
+                }
+                if (score > alpha) {
+                    alpha = score;
+                    if (alpha >= beta) break; 
+                }
+            }
+
+            return bestScore;
+        }
+
+        // 终局完美解
+        function solveEndgame(own, opp, alpha, beta, passed) {
+            nodes++;
+
+            let legalMoves = getMoves(own, opp);
+
+            if (legalMoves === 0n) {
+                if (passed) {
+                    let diff = popcnt(own) - popcnt(opp);
+                    if (diff > 0) return 10000 + diff;
+                    if (diff < 0) return -10000 + diff;
+                    return 0;
+                }
+                return -solveEndgame(opp, own, -beta, -alpha, true);
+            }
+
+            let temp = legalMoves;
+            let bestScore = -Infinity;
+
+            while (temp > 0n) {
+                let lsb = temp & -temp;
+                let s = lsb.toString(2);
+                let idx = s.length - 1; 
+                
+                if (getFlips(idx, own, opp) !== 0n) {
+                    let flips = getFlips(idx, own, opp);
+                    let newOwn = own | lsb | flips;
+                    let newOpp = opp & ~flips;
+
+                    let val = -solveEndgame(newOpp, newOwn, -beta, -alpha, false);
+                    
+                    if (val > bestScore) bestScore = val;
+                    if (val > alpha) {
+                        alpha = val;
+                        if (alpha >= beta) break;
+                    }
+                }
+                temp ^= lsb;
+            }
+            return bestScore;
+        }
+
+        
+        function getBestMove(boardBlackStr, boardWhiteStr, color, level) {
+            let own = (color === BLACK) ? BigInt(boardBlackStr) : BigInt(boardWhiteStr);
+            let opp = (color === BLACK) ? BigInt(boardWhiteStr) : BigInt(boardBlackStr);
+            
+            nodes = 0;
+            stopSearch = false;
+            startTime = Date.now();
+
+            let emptyCount = 64 - popcnt(own | opp);
+            
+            let maxDepth;
+            if (level <= 2) maxDepth = 1;
+            else if (level <= 4) maxDepth = 4;
+            else if (level <= 6) maxDepth = 6;
+            else if (level <= 8) maxDepth = 10;
+            else maxDepth = 14; 
+
+            if (level >= 10) timeLimit = 3000;
+            else timeLimit = 1500;
+
+            // 增强终局：在 Level 9+ 时，剩余 18 步内直接算完美解（之前是16）
+            if (emptyCount <= 18 && level >= 9) {
+                maxDepth = 64;
+                timeLimit = 10000;
+            }
+
+            let legalMoves = getMoves(own, opp);
+            if (legalMoves === 0n) return -1;
+
+            let moves = [];
+            let temp = legalMoves;
+            while (temp > 0n) {
+                let lsb = temp & -temp;
+                let s = lsb.toString(2);
+                let idx = s.length - 1;
+                
+                if (getFlips(idx, own, opp) !== 0n) {
+                    moves.push({ bits: lsb, idx: idx });
+                }
+                temp ^= lsb;
+            }
+
+            if (moves.length === 0) return -1;
+            if (moves.length === 1) return moves[0].idx;
+
+            let bestMove = moves[0].idx;
+            let currentBestScore = -Infinity;
+
+            for (let d = 1; d <= maxDepth; d++) {
+                let alpha = -Infinity;
+                let beta = Infinity;
+                let iterBestMove = -1;
+                let iterBestScore = -Infinity;
+
+                for (let i = 0; i < moves.length; i++) {
+                    let m = moves[i];
+                    let flips = getFlips(m.idx, own, opp);
+                    let newOwn = own | m.bits | flips;
+                    let newOpp = opp & ~flips;
+
+                    let score;
+                    // 使用 solveEndgame 进行完美求解
+                    if (emptyCount <= 18 && level >= 9) {
+                         score = -solveEndgame(newOpp, newOwn, -beta, -alpha, false);
+                    } else {
+                         score = -search(newOpp, newOwn, 1-color, d - 1, -beta, -alpha, false);
+                    }
+
+                    if (stopSearch) break;
+
+                    m.lastScore = score;
+
+                    if (score > iterBestScore) {
+                        iterBestScore = score;
+                        iterBestMove = m.idx;
+                    }
+                    if (score > alpha) alpha = score;
+                }
+
+                if (stopSearch) break;
+
+                bestMove = iterBestMove;
+                currentBestScore = iterBestScore;
+                
+                moves.sort((a, b) => b.lastScore - a.lastScore);
+
+                postMessage({ type: 'progress', depth: d, nodes: nodes, time: Date.now() - startTime, score: currentBestScore });
+                
+                if (currentBestScore > 9000) break;
+                if (d >= emptyCount) break;
+            }
+
+            return bestMove;
+        }
+
+        initAI();
+
+        self.onmessage = function(e) {
+            const data = e.data;
+            if (data.type === 'think') {
+                const move = getBestMove(data.black, data.white, data.color, data.level);
+                postMessage({ type: 'done', move: move, nodes: nodes, time: Date.now() - startTime });
+            }
+        };
+    </script>
+
+    <script>
+        const BLACK = 0;
+        const WHITE = 1;
+        const EMPTY = 2;
+
+        class OthelloGame {
+            constructor() {
+                this.board = new Array(64).fill(EMPTY);
+                this.turn = BLACK; 
+                this.history = [];
+                this.aiWorker = null;
+                this.aiLevel = 10;
+                this.isThinking = false;
+                this.userColor = BLACK; 
+                this.gameOver = false;
+                
+                this.initWorker();
+                this.initBoardUI();
+                this.newGame();
+
+                document.getElementById('difficulty-slider').addEventListener('input', (e) => {
+                    this.aiLevel = parseInt(e.target.value);
+                    document.getElementById('difficulty-val').innerText = this.aiLevel;
+                });
+            }
+
+            initWorker() {
+                const blob = new Blob([document.getElementById('worker-code').textContent], { type: "text/javascript" });
+                this.aiWorker = new Worker(URL.createObjectURL(blob));
+                
+                this.aiWorker.onmessage = (e) => {
+                    const data = e.data;
+                    if (data.type === 'progress') {
+                        document.getElementById('ai-stats').innerText = `深度: ${data.depth} | 节点: ${(data.nodes/1000).toFixed(1)}k | 耗时: ${data.time}ms`;
+                        document.getElementById('ai-eval').innerText = `评估: ${data.score}`;
+                        document.getElementById('ai-eval').classList.remove('hidden');
+                    } else if (data.type === 'done') {
+                        this.isThinking = false;
+                        document.getElementById('ai-thinking').classList.add('hidden');
+                        document.getElementById('status-text').innerText = (this.turn === BLACK ? "轮到黑棋" : "轮到白棋");
+                        
+                        if (data.move !== -1) {
+                            this.makeMove(data.move);
+                        } else {
+                            this.passTurn();
+                        }
+                    }
+                };
+            }
+
+            initBoardUI() {
+                const boardEl = document.getElementById('board');
+                const dotsEl = document.getElementById('dots-container');
+                boardEl.innerHTML = '';
+                dotsEl.innerHTML = '';
+
+                for (let i = 0; i < 64; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'w-full h-full bg-green-700 relative cursor-pointer hover:bg-green-600 transition-colors duration-200 flex items-center justify-center';
+                    cell.dataset.idx = i;
+                    cell.onclick = () => this.handleUserClick(i);
+                    
+                    const disc = document.createElement('div');
+                    disc.className = 'w-[80%] h-[80%] rounded-full transition-all duration-500 transform-style-3d';
+                    disc.id = `disc-${i}`;
+                    
+                    const blackFace = document.createElement('div');
+                    blackFace.className = 'absolute inset-0 bg-black rounded-full backface-hidden piece-shadow border-2 border-gray-700';
+                    const whiteFace = document.createElement('div');
+                    whiteFace.className = 'absolute inset-0 bg-white rounded-full backface-hidden rotate-y-180 piece-shadow border-2 border-gray-200';
+
+                    disc.appendChild(blackFace);
+                    disc.appendChild(whiteFace);
+                    cell.appendChild(disc);
+                    boardEl.appendChild(cell);
+                    
+                    this.updateDiscUI(i, EMPTY);
+                }
+
+                const stars = [18, 21, 42, 45];
+                stars.forEach(idx => {
+                    const dot = document.createElement('div');
+                    dot.className = 'dot';
+                    const row = Math.floor(idx / 8);
+                    const col = idx % 8;
+                    dot.style.top = `calc(${row * 12.5}% - 4px + 6.25%)`; 
+                    dot.style.left = `calc(${col * 12.5}% - 4px + 6.25%)`;
+                    dotsEl.appendChild(dot);
+                });
+            }
+
+            updateDiscUI(idx, type) {
+                const disc = document.getElementById(`disc-${idx}`);
+                if (type === EMPTY) {
+                    disc.style.opacity = '0';
+                    disc.style.transform = 'scale(0)';
+                } else if (type === BLACK) {
+                    disc.style.opacity = '1';
+                    disc.style.transform = 'scale(1) rotateY(0deg)';
+                } else if (type === WHITE) {
+                    disc.style.opacity = '1';
+                    disc.style.transform = 'scale(1) rotateY(180deg)';
+                }
+            }
+
+            newGame() {
+                this.board.fill(EMPTY);
+                this.board[27] = WHITE;
+                this.board[28] = BLACK;
+                this.board[35] = BLACK;
+                this.board[36] = WHITE;
+                
+                this.turn = BLACK;
+                this.history = [];
+                this.gameOver = false;
+                this.isThinking = false;
+                
+                // 确保标签显示正确（重置）
+                this.updateLabels();
+                
+                this.renderBoard();
+                this.updateStatus();
+                this.checkTurn();
+            }
+
+            updateLabels() {
+                const lblBlack = document.getElementById('label-black');
+                const lblWhite = document.getElementById('label-white');
+                if (this.userColor === BLACK) {
+                    lblBlack.innerText = "黑棋 (玩家)";
+                    lblWhite.innerText = "白棋 (AI)";
+                } else {
+                    lblBlack.innerText = "黑棋 (AI)";
+                    lblWhite.innerText = "白棋 (玩家)";
+                }
+            }
+
+            renderBoard() {
+                for(let i=0; i<64; i++) {
+                    this.updateDiscUI(i, this.board[i]);
+                }
+                
+                document.querySelectorAll('#board > div').forEach(d => d.classList.remove('ring', 'ring-yellow-400', 'ring-opacity-50'));
+                if (this.history.length > 0) {
+                    const lastMove = this.history[this.history.length-1].move;
+                    if (lastMove >= 0) {
+                        const cell = document.querySelector(`div[data-idx="${lastMove}"]`);
+                        if(cell) cell.classList.add('ring', 'ring-4', 'ring-yellow-400', 'ring-opacity-50', 'z-10');
+                    }
+                }
+
+                document.querySelectorAll('.hint-dot').forEach(el => el.remove());
+                if (this.turn === this.userColor && !this.gameOver) {
+                    const moves = this.getValidMoves(this.turn);
+                    moves.forEach(m => {
+                        const cell = document.querySelector(`div[data-idx="${m}"]`);
+                        const hint = document.createElement('div');
+                        hint.className = 'hint-dot w-3 h-3 bg-green-400/50 rounded-full absolute pointer-events-none';
+                        cell.appendChild(hint);
+                    });
+                }
+            }
+
+            updateStatus() {
+                const blackCount = this.board.filter(c => c === BLACK).length;
+                const whiteCount = this.board.filter(c => c === WHITE).length;
+                document.getElementById('score-black').innerText = blackCount;
+                document.getElementById('score-white').innerText = whiteCount;
+                
+                if (this.gameOver) {
+                    let msg = "";
+                    if (blackCount > whiteCount) msg = "黑棋获胜！";
+                    else if (whiteCount > blackCount) msg = "白棋获胜！";
+                    else msg = "平局！";
+                    document.getElementById('status-text').innerText = msg;
+                    document.getElementById('status-text').className = "text-lg font-bold text-yellow-400 animate-bounce";
+                } else {
+                    const colorName = this.turn === BLACK ? "黑棋" : "白棋";
+                    const isUser = this.turn === this.userColor;
+                    document.getElementById('status-text').innerText = `轮到${colorName} ${isUser ? '(你)' : '(AI)'}`;
+                    document.getElementById('status-text').className = `text-lg font-semibold ${this.turn === BLACK ? 'text-gray-300' : 'text-white'}`;
+                }
+            }
+
+            isValidMove(move, color) {
+                if (this.board[move] !== EMPTY) return false;
+                const flipped = this.flip(move, color);
+                return flipped.length > 0;
+            }
+
+            getValidMoves(color) {
+                let moves = [];
+                for (let i = 0; i < 64; i++) {
+                    if (this.isValidMove(i, color)) moves.push(i);
+                }
+                return moves;
+            }
+
+            flip(move, color) {
+                const opp = 1 - color;
+                let flipped = [];
+                const dirs = [-9, -8, -7, -1, 1, 7, 8, 9];
+                
+                for (let dir of dirs) {
+                    let dr=0, dc=0;
+                    if(dir===-9){dr=-1;dc=-1;} else if(dir===-8){dr=-1;dc=0;} else if(dir===-7){dr=-1;dc=1;}
+                    else if(dir===-1){dr=0;dc=-1;} else if(dir===1){dr=0;dc=1;}
+                    else if(dir===7){dr=1;dc=-1;} else if(dir===8){dr=1;dc=0;} else if(dir===9){dr=1;dc=1;}
+
+                    let r = Math.floor(move / 8);
+                    let c = move % 8;
+                    let nr = r + dr, nc = c + dc;
+                    let potential = [];
+                    
+                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        const idx = nr * 8 + nc;
+                        if (this.board[idx] === opp) {
+                            potential.push(idx);
+                        } else if (this.board[idx] === color) {
+                            if (potential.length > 0) flipped.push(...potential);
+                            break;
+                        } else {
+                            break;
+                        }
+                        nr += dr; nc += dc;
+                    }
+                }
+                return flipped;
+            }
+
+            makeMove(move) {
+                if (this.board[move] !== EMPTY) return;
+                const flipped = this.flip(move, this.turn);
+                if (flipped.length === 0) {
+                     alert("非法移动！");
+                     return;
+                }
+
+                this.history.push({
+                    board: [...this.board],
+                    turn: this.turn,
+                    move: move
+                });
+
+                this.board[move] = this.turn;
+                flipped.forEach(idx => this.board[idx] = this.turn);
+                
+                this.turn = 1 - this.turn;
+                this.renderBoard();
+                this.updateStatus();
+                
+                setTimeout(() => this.checkTurn(), 300);
+            }
+
+            passTurn() {
+                if (this.getValidMoves(1-this.turn).length === 0) {
+                    this.gameOver = true;
+                    this.updateStatus();
+                    return;
+                }
+                this.history.push({
+                    board: [...this.board],
+                    turn: this.turn,
+                    move: -1 
+                });
+                this.turn = 1 - this.turn;
+                this.updateStatus();
+                setTimeout(() => this.checkTurn(), 500);
+            }
+
+            checkTurn() {
+                if (this.gameOver) return;
+                
+                const validMoves = this.getValidMoves(this.turn);
+                if (validMoves.length === 0) {
+                    const oppMoves = this.getValidMoves(1 - this.turn);
+                    if (oppMoves.length === 0) {
+                        this.gameOver = true;
+                        this.updateStatus();
+                        return;
+                    }
+                    alert((this.turn === BLACK ? "黑方" : "白方") + "无子可下，跳过回合");
+                    this.passTurn();
+                    return;
+                }
+
+                if (this.turn !== this.userColor) {
+                    this.runAI();
+                } else {
+                    this.renderBoard(); 
+                }
+            }
+
+            handleUserClick(idx) {
+                if (this.gameOver || this.turn !== this.userColor || this.isThinking) return;
+                if (!this.isValidMove(idx, this.turn)) return;
+                this.makeMove(idx);
+            }
+
+            runAI() {
+                this.isThinking = true;
+                document.getElementById('ai-thinking').classList.remove('hidden');
+                document.getElementById('status-text').innerText = "AI 正在思考...";
+                
+                let b = 0n, w = 0n;
+                for(let i=0; i<64; i++) {
+                    if (this.board[i] === BLACK) b |= (1n << BigInt(i));
+                    else if (this.board[i] === WHITE) w |= (1n << BigInt(i));
+                }
+
+                this.aiWorker.postMessage({
+                    type: 'think',
+                    black: b.toString(),
+                    white: w.toString(),
+                    color: this.turn,
+                    level: this.aiLevel
+                });
+            }
+
+            undo() {
+                if (this.history.length === 0 || this.isThinking) return;
+                let target = this.history.length - 1;
+                if (this.turn !== this.userColor) {
+                    target = this.history.length - 1;
+                } else {
+                    target = this.history.length - 2;
+                }
+                if (target < 0) {
+                    this.newGame();
+                    return;
+                }
+
+                const state = this.history[target];
+                this.board = [...state.board];
+                this.turn = state.turn;
+                this.history = this.history.slice(0, target);
+                this.gameOver = false;
+                this.renderBoard();
+                this.updateStatus();
+            }
+
+            switchSide() {
+                if (this.history.length > 0) {
+                    if(!confirm("换边将重新开始游戏，确定吗？")) return;
+                }
+                this.userColor = 1 - this.userColor;
+                this.newGame();
+                if (this.userColor === WHITE) {
+                    setTimeout(() => this.runAI(), 500);
+                }
+            }
+        }
+
+        const game = new OthelloGame();
+    </script>
+</body>
+</html>
