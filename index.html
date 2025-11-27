@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>黑白棋 (Othello) - 人机对战</title>
+    <style>
+        :root {
+            --board-bg: #2e7d32; /* 经典的棋盘绿 */
+            --board-border: #1b5e20;
+            --cell-border: rgba(0, 0, 0, 0.2);
+            --black-piece: #1a1a1a;
+            --white-piece: #f0f0f0;
+            --hint-color: rgba(0, 0, 0, 0.2);
+            --hint-hover: rgba(0, 0, 0, 0.4);
+            --primary-btn: #1976d2;
+            --primary-btn-hover: #1565c0;
+            --text-color: #333;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #eef2f3;
+            color: var(--text-color);
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-size: 2rem;
+            color: #2c3e50;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        /* --- 信息面板 --- */
+        .info-panel {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 500px;
+            justify-content: space-around;
+            align-items: center;
+        }
+
+        .score-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .score-label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .score-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .score-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .score-indicator.black { background-color: var(--black-piece); }
+        .score-indicator.white { background-color: var(--white-piece); border: 1px solid #ccc; }
+
+        .turn-display {
+            font-weight: bold;
+            color: #d32f2f; /* 醒目的颜色显示当前回合 */
+            padding: 5px 15px;
+            background: #ffebee;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        /* --- 棋盘 --- */
+        .board-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            aspect-ratio: 1 / 1;
+            background-color: var(--board-border);
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 100%;
+            height: 100%;
+            background-color: var(--board-border); /* 修改这里：使用深色背景，让 gap 显示为线条 */
+            gap: 2px; /* 增加一点间隙宽度，让线条更清晰 */
+            border: 4px solid var(--board-border); /* 加粗外边框 */
+        }
+
+        .cell {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background-color: var(--board-bg);
+            cursor: default;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 只有合法的格子才有鼠标手势 */
+        .cell.valid {
+            cursor: pointer;
+        }
+
+        /* 提示点 (Legal Move Hint) */
+        .cell.valid::after {
+            content: '';
+            width: 30%;
+            height: 30%;
+            background-color: var(--hint-color);
+            border-radius: 50%;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+
+        .cell.valid:hover::after {
+            background-color: var(--hint-hover);
+            transform: scale(1.2);
+        }
+
+        /* --- 棋子 --- */
+        .piece {
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.5), inset -2px -2px 5px rgba(0,0,0,0.2);
+            position: absolute;
+            transition: transform 0.4s ease-in-out, background-color 0.4s;
+            backface-visibility: hidden;
+        }
+
+        .piece.black {
+            background-color: var(--black-piece);
+            background: radial-gradient(circle at 30% 30%, #444, var(--black-piece));
+        }
+
+        .piece.white {
+            background-color: var(--white-piece);
+            background: radial-gradient(circle at 30% 30%, #fff, #ddd);
+        }
+
+        /* 翻转动画的辅助类 */
+        .piece.flipping {
+            transform: scale(0);
+        }
+
+        /* --- 控制区 --- */
+        .controls {
+            margin-top: 25px;
+        }
+
+        .btn {
+            background-color: var(--primary-btn);
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .btn:hover {
+            background-color: var(--primary-btn-hover);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        /* --- 消息弹窗 --- */
+        .message-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .message-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .message-box {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            max-width: 90%;
+        }
+
+        .message-box h2 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .message-box p {
+            margin-bottom: 20px;
+            font-size: 1.2rem;
+        }
+
+        /* 移动端优化 */
+        @media (max-width: 600px) {
+            .board-container {
+                max-width: 90vw;
+            }
+            .info-panel {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>黑白棋 (Reversi)</h1>
+
+    <div class="info-panel">
+        <div class="score-box">
+            <span class="score-label">黑棋 (玩家)</span>
+            <span class="score-value">
+                <span class="score-indicator black"></span>
+                <span id="score-black">2</span>
+            </span>
+        </div>
+        
+        <div class="turn-display" id="turn-display">黑棋的回合</div>
+
+        <div class="score-box">
+            <span class="score-label">白棋 (AI)</span>
+            <span class="score-value">
+                <span class="score-indicator white"></span>
+                <span id="score-white">2</span>
+            </span>
+        </div>
+    </div>
+
+    <div class="board-container">
+        <div class="board" id="board">
+            <!-- 网格由JS动态生成 -->
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn" onclick="game.initGame()">重新开始 (New Game)</button>
+    </div>
+
+    <!-- 游戏结束/消息弹窗 -->
+    <div class="message-overlay" id="message-overlay">
+        <div class="message-box">
+            <h2 id="msg-title">游戏结束</h2>
+            <p id="msg-content">黑棋胜！</p>
+            <button class="btn" onclick="game.closeOverlay()">确定</button>
+        </div>
+    </div>
+
+<script>
+/**
+ * 黑白棋 (Othello) 游戏逻辑与AI
+ * * 约定:
+ * Board: 8x8 二维数组
+ * 1 = 黑棋 (玩家)
+ * -1 = 白棋 (AI)
+ * 0 = 空
+ */
+
+class OthelloGame {
+    constructor() {
+        this.ROWS = 8;
+        this.COLS = 8;
+        this.board = [];
+        this.currentPlayer = 1; // 1: Black, -1: White
+        this.gameActive = false;
+        this.validMoves = [];
+        
+        // AI 配置
+        this.AI_PLAYER = -1;
+        this.HUMAN_PLAYER = 1;
+        this.AI_DEPTH = 6; // 基础深度提升到 6
+
+        // 位置权重矩阵 (优化版 - 更加强调角落和区域控制)
+        this.WEIGHTS = [
+            [500, -80, 10,  5,  5, 10, -80, 500],
+            [-80, -100, -5, -5, -5, -5, -100, -80],
+            [ 10,  -5,  2,  1,  1,  2,  -5,  10],
+            [  5,  -5,  1,  5,  5,  1,  -5,   5],
+            [  5,  -5,  1,  5,  5,  1,  -5,   5],
+            [ 10,  -5,  2,  1,  1,  2,  -5,  10],
+            [-80, -100, -5, -5, -5, -5, -100, -80],
+            [500, -80, 10,  5,  5, 10, -80, 500]
+        ];
+
+        // 绑定UI元素
+        this.boardEl = document.getElementById('board');
+        this.scoreBlackEl = document.getElementById('score-black');
+        this.scoreWhiteEl = document.getElementById('score-white');
+        this.turnDisplayEl = document.getElementById('turn-display');
+        this.overlayEl = document.getElementById('message-overlay');
+        this.msgTitleEl = document.getElementById('msg-title');
+        this.msgContentEl = document.getElementById('msg-content');
+
+        this.initGame();
+    }
+
+    // 初始化游戏
+    initGame() {
+        // 创建空棋盘
+        this.board = Array(this.ROWS).fill().map(() => Array(this.COLS).fill(0));
+        
+        // 放置初始4颗棋子
+        this.board[3][3] = -1;
+        this.board[3][4] = 1;
+        this.board[4][3] = 1;
+        this.board[4][4] = -1;
+
+        this.currentPlayer = 1; // 黑棋先手
+        this.gameActive = true;
+        this.closeOverlay();
+        
+        this.updateGameState();
+    }
+
+    // 计算当前玩家的所有合法落子点
+    getValidMoves(player, boardState = this.board) {
+        let moves = [];
+        for (let r = 0; r < this.ROWS; r++) {
+            for (let c = 0; c < this.COLS; c++) {
+                if (boardState[r][c] !== 0) continue; // 必须是空位
+                if (this.canFlip(r, c, player, boardState)) {
+                    moves.push({ r, c });
+                }
+            }
+        }
+        return moves;
+    }
+
+    // 检查在(r, c)落子是否合法（是否能翻转对方棋子）
+    canFlip(r, c, player, boardState) {
+        const directions = [
+            [-1, -1], [-1, 0], [-1, 1],
+            [0, -1],           [0, 1],
+            [1, -1],  [1, 0],  [1, 1]
+        ];
+
+        for (let [dr, dc] of directions) {
+            let nr = r + dr;
+            let nc = c + dc;
+            let hasOpponent = false;
+
+            // 沿着方向前进，先要遇到对方棋子
+            while (this.isOnBoard(nr, nc) && boardState[nr][nc] === -player) {
+                nr += dr;
+                nc += dc;
+                hasOpponent = true;
+            }
+
+            // 最后必须遇到自己的棋子
+            if (hasOpponent && this.isOnBoard(nr, nc) && boardState[nr][nc] === player) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    isOnBoard(r, c) {
+        return r >= 0 && r < this.ROWS && c >= 0 && c < this.COLS;
+    }
+
+    // 执行落子并翻转棋子
+    makeMove(r, c, player, isRealMove = true) {
+        if (!isRealMove) {
+            // 如果是AI模拟，我们需要克隆一个棋盘
+            let newBoard = this.board.map(row => [...row]);
+            this.executeFlip(r, c, player, newBoard);
+            return newBoard;
+        } else {
+            // 真实落子
+            this.executeFlip(r, c, player, this.board);
+            return this.board;
+        }
+    }
+
+    // 具体的翻转逻辑
+    executeFlip(r, c, player, boardState) {
+        boardState[r][c] = player;
+        const directions = [
+            [-1, -1], [-1, 0], [-1, 1],
+            [0, -1],           [0, 1],
+            [1, -1],  [1, 0],  [1, 1]
+        ];
+
+        for (let [dr, dc] of directions) {
+            let nr = r + dr;
+            let nc = c + dc;
+            let piecesToFlip = [];
+
+            while (this.isOnBoard(nr, nc) && boardState[nr][nc] === -player) {
+                piecesToFlip.push({ r: nr, c: nc });
+                nr += dr;
+                nc += dc;
+            }
+
+            if (piecesToFlip.length > 0 && this.isOnBoard(nr, nc) && boardState[nr][nc] === player) {
+                for (let p of piecesToFlip) {
+                    boardState[p.r][p.c] = player;
+                }
+            }
+        }
+    }
+
+    // 更新游戏状态（渲染、计算分数、判断胜负、切换回合）
+    updateGameState() {
+        this.validMoves = this.getValidMoves(this.currentPlayer);
+        this.renderBoard();
+        this.updateScoreUI();
+
+        // 检查当前玩家是否有棋可下
+        if (this.validMoves.length === 0) {
+            // 检查对手是否有棋可下
+            const opponentMoves = this.getValidMoves(-this.currentPlayer);
+            if (opponentMoves.length === 0) {
+                this.endGame();
+            } else {
+                // 当前玩家无法落子，跳过回合
+                const playerName = this.currentPlayer === 1 ? "黑棋 (你)" : "白棋 (AI)";
+                // 如果是人类被跳过，给个提示
+                if (this.currentPlayer === this.HUMAN_PLAYER) {
+                    alert(`${playerName} 无处落子，跳过回合！`);
+                }
+                this.changeTurn();
+            }
+        } else {
+            // 如果是AI的回合，触发AI思考
+            if (this.currentPlayer === this.AI_PLAYER && this.gameActive) {
+                // 稍微给点延迟，让UI渲染完成
+                setTimeout(() => this.aiMove(), 100); 
+            }
+        }
+    }
+
+    changeTurn() {
+        this.currentPlayer = -this.currentPlayer;
+        this.updateGameState();
+    }
+
+    handleCellClick(r, c) {
+        // 只有游戏进行中、轮到人类、且是合法位置时才响应
+        if (!this.gameActive || this.currentPlayer !== this.HUMAN_PLAYER) return;
+
+        // 检查点击位置是否在合法列表中
+        const isValid = this.validMoves.some(m => m.r === r && m.c === c);
+        if (isValid) {
+            this.makeMove(r, c, this.currentPlayer);
+            this.changeTurn();
+        }
+    }
+
+    // --- AI 逻辑 (Minimax + Alpha-Beta Pruning) ---
+
+    aiMove() {
+        if (!this.gameActive) return;
+
+        // 动态调整深度策略
+        const flatBoard = this.board.flat();
+        const emptyCells = flatBoard.filter(c => c === 0).length;
+        
+        let searchDepth = this.AI_DEPTH;
+
+        // 终局模式：当空位很少时，穷举搜索（算出必胜步）
+        if (emptyCells <= 12) {
+            searchDepth = 12; 
+        } else if (emptyCells <= 16) {
+            searchDepth = 8;
+        }
+
+        // 复制当前棋盘状态进行计算
+        const boardCopy = this.board.map(row => [...row]);
+        const bestMove = this.minimax(boardCopy, searchDepth, -Infinity, Infinity, true);
+
+        if (bestMove && bestMove.move) {
+            this.makeMove(bestMove.move.r, bestMove.move.c, this.AI_PLAYER);
+            this.changeTurn();
+        } else {
+            this.changeTurn();
+        }
+    }
+
+    /**
+     * Minimax 递归函数
+     */
+    minimax(nodeBoard, depth, alpha, beta, maximizingPlayer) {
+        const player = maximizingPlayer ? this.AI_PLAYER : this.HUMAN_PLAYER;
+        let validMoves = this.getValidMoves(player, nodeBoard);
+
+        // 终止条件：达到深度 或 游戏结束（无路可走）
+        // 如果双方都没棋走了，也算结束
+        if (depth === 0 || (validMoves.length === 0 && this.getValidMoves(-player, nodeBoard).length === 0)) {
+            return { score: this.evaluateBoard(nodeBoard) };
+        }
+
+        // 如果一方无路可走但游戏未结束，这层依然要处理（相当于Pass，不减深度或减深度由策略定，这里简单处理继续搜）
+        if (validMoves.length === 0) {
+            return this.minimax(nodeBoard, depth - 1, alpha, beta, !maximizingPlayer);
+        }
+
+        // --- 启发式优化：Move Ordering ---
+        // 优先搜索“权重高”的位置（如角落），这样能更快触发剪枝
+        validMoves.sort((a, b) => {
+            return this.WEIGHTS[b.r][b.c] - this.WEIGHTS[a.r][a.c];
+        });
+
+        if (maximizingPlayer) {
+            let maxEval = -Infinity;
+            let bestMove = null;
+
+            for (let move of validMoves) {
+                const newBoard = nodeBoard.map(row => [...row]);
+                this.executeFlip(move.r, move.c, this.AI_PLAYER, newBoard);
+
+                const evalResult = this.minimax(newBoard, depth - 1, alpha, beta, false);
+                
+                if (evalResult.score > maxEval) {
+                    maxEval = evalResult.score;
+                    bestMove = move;
+                }
+                alpha = Math.max(alpha, evalResult.score);
+                if (beta <= alpha) break; // Beta 剪枝
+            }
+            return { score: maxEval, move: bestMove };
+
+        } else {
+            let minEval = Infinity;
+            let bestMove = null;
+
+            for (let move of validMoves) {
+                const newBoard = nodeBoard.map(row => [...row]);
+                this.executeFlip(move.r, move.c, this.HUMAN_PLAYER, newBoard);
+
+                const evalResult = this.minimax(newBoard, depth - 1, alpha, beta, true);
+
+                if (evalResult.score < minEval) {
+                    minEval = evalResult.score;
+                    bestMove = move;
+                }
+                beta = Math.min(beta, evalResult.score);
+                if (beta <= alpha) break; // Alpha 剪枝
+            }
+            return { score: minEval, move: bestMove };
+        }
+    }
+
+    // 评估函数：决定局势好坏的核心
+    evaluateBoard(boardState) {
+        let blackScore = 0;
+        let whiteScore = 0;
+        
+        const flatBoard = boardState.flat();
+        const emptyCount = flatBoard.filter(c => c === 0).length;
+
+        // --- 阶段 1: 终局判断 ---
+        // 如果游戏结束（或非常接近结束），只看棋子数量，谁多谁赢
+        if (emptyCount === 0) {
+            const blackCount = flatBoard.filter(c => c === this.HUMAN_PLAYER).length;
+            const whiteCount = flatBoard.filter(c => c === this.AI_PLAYER).length;
+            return (whiteCount - blackCount) * 10000; // 放大分值，确保AI优先选择必胜路径
+        }
+
+        // --- 阶段 2: 过程评估 ---
+        
+        // A. 位置权重分 (Position Strategy)
+        for (let r = 0; r < this.ROWS; r++) {
+            for (let c = 0; c < this.COLS; c++) {
+                const val = boardState[r][c];
+                if (val === this.AI_PLAYER) whiteScore += this.WEIGHTS[r][c]; 
+                else if (val === this.HUMAN_PLAYER) blackScore += this.WEIGHTS[r][c];
+            }
+        }
+
+        // B. 行动力 (Mobility Strategy)
+        // 计算双方有多少种合法走法。走法越多，通常意味着越主动，越不容易被对方逼入死角。
+        const blackMovesCount = this.getValidMoves(this.HUMAN_PLAYER, boardState).length;
+        const whiteMovesCount = this.getValidMoves(this.AI_PLAYER, boardState).length;
+        
+        // 行动力在开局和中局非常重要
+        const mobilityWeight = 15; 
+        whiteScore += whiteMovesCount * mobilityWeight;
+        blackScore += blackMovesCount * mobilityWeight;
+
+        // 返回分差 (AI - Human)
+        return whiteScore - blackScore;
+    }
+
+    // --- UI 渲染相关 ---
+
+    renderBoard() {
+        this.boardEl.innerHTML = '';
+        
+        for (let r = 0; r < this.ROWS; r++) {
+            for (let c = 0; c < this.COLS; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                
+                // 检查是否是合法位置（仅针对人类玩家显示提示）
+                if (this.currentPlayer === this.HUMAN_PLAYER && 
+                    this.validMoves.some(m => m.r === r && m.c === c)) {
+                    cell.classList.add('valid');
+                    cell.onclick = () => this.handleCellClick(r, c);
+                }
+
+                // 渲染棋子
+                const cellValue = this.board[r][c];
+                if (cellValue !== 0) {
+                    const piece = document.createElement('div');
+                    piece.className = `piece ${cellValue === 1 ? 'black' : 'white'}`;
+                    cell.appendChild(piece);
+                }
+
+                this.boardEl.appendChild(cell);
+            }
+        }
+        
+        // 更新回合文字
+        const isBlack = this.currentPlayer === 1;
+        this.turnDisplayEl.textContent = isBlack ? "黑棋的回合 (你)" : "白棋的回合 (AI计算中...)";
+        this.turnDisplayEl.style.backgroundColor = isBlack ? "#e0e0e0" : "#ffebee";
+        this.turnDisplayEl.style.color = isBlack ? "#000" : "#d32f2f";
+    }
+
+    updateScoreUI() {
+        let black = 0, white = 0;
+        for (let r = 0; r < this.ROWS; r++) {
+            for (let c = 0; c < this.COLS; c++) {
+                if (this.board[r][c] === 1) black++;
+                else if (this.board[r][c] === -1) white++;
+            }
+        }
+        this.scoreBlackEl.innerText = black;
+        this.scoreWhiteEl.innerText = white;
+    }
+
+    endGame() {
+        this.gameActive = false;
+        const black = parseInt(this.scoreBlackEl.innerText);
+        const white = parseInt(this.scoreWhiteEl.innerText);
+        
+        let title = "";
+        let content = `黑棋: ${black} | 白棋: ${white}`;
+
+        if (black > white) {
+            title = "恭喜！你赢了！🎉";
+        } else if (white > black) {
+            title = "遗憾，AI 获胜！🤖";
+        } else {
+            title = "平局！🤝";
+        }
+
+        this.showOverlay(title, content);
+    }
+
+    showOverlay(title, content) {
+        this.msgTitleEl.innerText = title;
+        this.msgContentEl.innerText = content;
+        this.overlayEl.classList.add('show');
+    }
+
+    closeOverlay() {
+        this.overlayEl.classList.remove('show');
+    }
+}
+
+// 启动游戏
+const game = new OthelloGame();
+
+</script>
+</body>
+</html>
