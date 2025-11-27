@@ -3,1146 +3,1027 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reversi AI - Grandmaster Level</title>
+    <title>黑白棋大师 - 顶级 AI 版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root {
-            --board-bg: #1e824c;
-            --board-border: #145a32;
-            --text-color: #e2e8f0;
-            --bg-color: #0f172a;
-            --panel-bg: #1e293b;
-            --accent: #3b82f6;
-            --accent-hover: #2563eb;
-        }
-
-        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        /* 棋盘 3D 效果与动画 */
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
         
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 10px;
+        /* 棋子阴影 */
+        .piece-shadow {
+            box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.4), inset 2px 2px 5px rgba(255, 255, 255, 0.2), inset -2px -2px 5px rgba(0, 0, 0, 0.2);
         }
 
-        h1 { margin: 0 0 15px 0; font-size: 1.8rem; text-align: center; background: linear-gradient(to right, #4ade80, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-
-        .game-container {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            max-width: 600px;
-            width: 100%;
-            background: var(--panel-bg);
-            padding: 20px;
-            border-radius: 16px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        /* 木纹背景 */
+        .board-texture {
+            background-color: #2d6b46;
+            background-image: linear-gradient(30deg, #265c3c 12%, transparent 12.5%, transparent 87%, #265c3c 87.5%, #265c3c),
+            linear-gradient(150deg, #265c3c 12%, transparent 12.5%, transparent 87%, #265c3c 87.5%, #265c3c),
+            linear-gradient(30deg, #265c3c 12%, transparent 12.5%, transparent 87%, #265c3c 87.5%, #265c3c),
+            linear-gradient(150deg, #265c3c 12%, transparent 12.5%, transparent 87%, #265c3c 87.5%, #265c3c),
+            linear-gradient(60deg, #2a6341 25%, transparent 25.5%, transparent 75%, #2a6341 75%, #2a6341),
+            linear-gradient(60deg, #2a6341 25%, transparent 25.5%, transparent 75%, #2a6341 75%, #2a6341);
+            background-size: 20px 35px;
+            background-position: 0 0, 0 0, 10px 18px, 10px 18px, 0 0, 10px 18px;
         }
 
-        /* Info Panel */
-        .info-panel {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: rgba(0,0,0,0.2);
-            padding: 10px 15px;
-            border-radius: 10px;
-        }
-
-        .score-box {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 1.2rem;
-            font-weight: bold;
-        }
-        
-        .disc-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-            position: relative;
-        }
-        .disc-icon.black { background: linear-gradient(145deg, #333, #000); }
-        .disc-icon.white { background: linear-gradient(145deg, #fff, #ddd); }
-        .active-turn { padding: 4px 12px; background: rgba(255,255,255,0.1); border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); }
-
-        /* Board */
-        .board-wrapper {
-            position: relative;
-            padding-bottom: 100%; /* Aspect Ratio 1:1 */
-            background: var(--board-border);
-            border-radius: 4px;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
-            overflow: hidden;
-        }
-
-        .board {
+        /* 标记点 */
+        .dot {
             position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            display: grid;
-            grid-template-columns: repeat(8, 1fr);
-            grid-template-rows: repeat(8, 1fr);
-            gap: 2px;
-            background: var(--board-border);
-            border: 4px solid var(--board-border);
-        }
-
-        .cell {
-            background: var(--board-bg);
-            position: relative;
-            cursor: pointer;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .cell.last-move::after {
-            content: '';
-            position: absolute;
-            width: 4px;
-            height: 4px;
-            background: #ef4444;
+            width: 8px;
+            height: 8px;
+            background-color: rgba(0,0,0,0.3);
             border-radius: 50%;
-            z-index: 5;
-        }
-
-        .cell.valid-move::before {
-            content: '';
-            position: absolute;
-            width: 20%;
-            height: 20%;
-            background: rgba(0,0,0,0.2);
-            border-radius: 50%;
-            transition: transform 0.2s;
-        }
-        .cell.valid-move:hover::before { transform: scale(1.5); background: rgba(0,0,0,0.4); }
-
-        .disc {
-            width: 85%;
-            height: 85%;
-            border-radius: 50%;
-            position: absolute;
-            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.4s;
-            box-shadow: 1px 2px 4px rgba(0,0,0,0.5);
-            backface-visibility: hidden;
-        }
-
-        .disc.black { background: radial-gradient(circle at 30% 30%, #555, #000); transform: rotateY(0deg); }
-        .disc.white { background: radial-gradient(circle at 30% 30%, #fff, #ccc); transform: rotateY(0deg); }
-        /* Animation classes for flipping */
-        .disc.flipping-to-white { animation: flipToWhite 0.4s forwards; }
-        .disc.flipping-to-black { animation: flipToBlack 0.4s forwards; }
-
-        @keyframes flipToWhite {
-            0% { transform: rotateY(0deg); background: radial-gradient(circle at 30% 30%, #555, #000); }
-            50% { transform: rotateY(90deg); }
-            100% { transform: rotateY(180deg); background: radial-gradient(circle at 30% 30%, #fff, #ccc); }
-        }
-        @keyframes flipToBlack {
-            0% { transform: rotateY(180deg); background: radial-gradient(circle at 30% 30%, #fff, #ccc); }
-            50% { transform: rotateY(90deg); }
-            100% { transform: rotateY(0deg); background: radial-gradient(circle at 30% 30%, #555, #000); }
-        }
-
-        /* Controls */
-        .controls {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-        }
-
-        button {
-            background: var(--panel-bg);
-            border: 1px solid #475569;
-            color: #e2e8f0;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: all 0.2s;
-        }
-        button:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        
-        select {
-            background: var(--panel-bg);
-            color: white;
-            border: 1px solid #475569;
-            padding: 8px;
-            border-radius: 6px;
-        }
-
-        /* Status Bar */
-        .status-bar {
-            font-size: 0.85rem;
-            color: #94a3b8;
-            display: flex;
-            justify-content: space-between;
-            background: rgba(0,0,0,0.2);
-            padding: 8px;
-            border-radius: 6px;
-        }
-        
-        .loading-spinner {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-            margin-left: 5px;
-            display: none;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .thinking .loading-spinner { display: inline-block; }
-
-        /* Helper */
-        .coordinate {
-            position: absolute;
-            font-size: 10px;
-            color: rgba(255,255,255,0.3);
             pointer-events: none;
         }
-        .row-label { left: 2px; top: 2px; }
-        .col-label { right: 2px; bottom: 2px; }
 
+        /* 加载动画 */
+        .thinking-pulse {
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.8; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1); opacity: 0; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { transform: scale(0.8); opacity: 0; }
+        }
     </style>
 </head>
-<body>
+<body class="bg-gray-900 text-gray-100 font-sans min-h-screen flex flex-col items-center justify-center p-4">
 
-    <h1>Grandmaster Reversi AI</h1>
-
-    <div class="game-container">
-        <div class="info-panel">
-            <div class="score-box" id="black-score-box">
-                <div class="disc-icon black"></div>
-                <span id="score-black">2</span>
+    <!-- 顶部状态栏 -->
+    <div class="w-full max-w-2xl flex justify-between items-center mb-6 bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700">
+        <div class="flex items-center gap-4">
+            <div class="flex flex-col items-center">
+                <span class="text-sm text-gray-400 mb-1">黑棋 (玩家)</span>
+                <div class="w-12 h-12 rounded-full bg-black piece-shadow border-2 border-gray-600 flex items-center justify-center text-xl font-bold" id="score-black">2</div>
             </div>
-            <div style="font-weight:bold; opacity:0.7;">VS</div>
-            <div class="score-box" id="white-score-box">
-                <span id="score-white">2</span>
-                <div class="disc-icon white"></div>
-            </div>
-        </div>
-
-        <div class="board-wrapper">
-            <div class="board" id="board">
-                <!-- Cells generated by JS -->
+            <div class="text-2xl font-bold text-gray-500">VS</div>
+            <div class="flex flex-col items-center">
+                <span class="text-sm text-gray-400 mb-1">白棋 (AI)</span>
+                <div class="w-12 h-12 rounded-full bg-white piece-shadow text-black flex items-center justify-center text-xl font-bold" id="score-white">2</div>
             </div>
         </div>
-
-        <div class="status-bar" id="status-bar">
-            <span id="game-status">Ready</span>
-            <span id="ai-stats" class="thinking">Depth: 0 <span class="loading-spinner"></span></span>
-        </div>
-
-        <div class="controls">
-            <select id="difficulty">
-                <option value="2">Lv 1 (Easy)</option>
-                <option value="4">Lv 3 (Normal)</option>
-                <option value="6">Lv 5 (Hard)</option>
-                <option value="8">Lv 7 (Expert)</option>
-                <option value="10">Lv 9 (Master)</option>
-                <option value="12" selected>Lv 10 (Grandmaster)</option>
-            </select>
-            <button id="btn-new-game">New Game</button>
-            <button id="btn-undo">Undo</button>
-            <button id="btn-switch">Switch Sides</button>
+        
+        <div class="flex flex-col items-end">
+            <div id="status-text" class="text-lg font-semibold text-green-400">轮到黑棋</div>
+            <div class="text-xs text-gray-500 mt-1 font-mono" id="ai-stats">深度: 0 | 节点: 0 | 耗时: 0ms</div>
+            <div class="text-xs text-blue-400 mt-0.5 font-mono hidden" id="ai-eval">评估: 0</div>
         </div>
     </div>
 
-<script id="worker-code" type="javascript/worker">
-/**
- * Reversi Engine Worker
- * 
- * Features:
- * - 64-bit Bitboards (BigInt)
- * - Negamax with Alpha-Beta Pruning
- * - Iterative Deepening (ID)
- * - Principal Variation Search (PVS)
- * - Transposition Table (Zobrist Hashing)
- * - Move Ordering (Hash Move > Corner > Mobility > History)
- * - Advanced Evaluation (Weights, Mobility, Stability, Parity)
- * - Endgame Solver (Exact search for empty <= 18)
- */
-
-// --- Constants & Tables ---
-const BOARD_SIZE = 8n;
-const MASK_FULL = 0xFFFFFFFFFFFFFFFFn;
-const MASK_RIGHT = 0xfefefefefefefefen; // Exclude H file
-const MASK_LEFT  = 0x7f7f7f7f7f7f7f7fn; // Exclude A file
-
-// Precomputed bitmasks for moves
-const DIRECTIONS = [1n, -1n, 8n, -8n, 7n, -7n, 9n, -9n];
-// Masks to prevent wrapping
-const DIR_MASKS = {
-    1n: MASK_LEFT,   -1n: MASK_RIGHT,
-    8n: MASK_FULL,   -8n: MASK_FULL,
-    7n: MASK_RIGHT,  -7n: MASK_LEFT,
-    9n: MASK_LEFT,   -9n: MASK_RIGHT
-};
-
-// Static Evaluation Weights (Classical + Edax inspired)
-//    A  B  C  D  E  F  G  H
-// 1 99 -8  8  6  6  8 -8 99
-// 2 -8 -24 -4 -3 -3 -4 -24 -8
-// 3  8 -4  7  4  4  7 -4  8
-// 4  6 -3  4  0  0  4 -3  6
-// ... symmetry
-const STATIC_WEIGHTS = [
-     100, -20,  10,   5,   5,  10, -20,  100,
-     -20, -50,  -2,  -2,  -2,  -2, -50,  -20,
-      10,  -2,  -1,  -1,  -1,  -1,  -2,   10,
-       5,  -2,  -1,   0,   0,  -1,  -2,    5,
-       5,  -2,  -1,   0,   0,  -1,  -2,    5,
-      10,  -2,  -1,  -1,  -1,  -1,  -2,   10,
-     -20, -50,  -2,  -2,  -2,  -2, -50,  -20,
-     100, -20,  10,   5,   5,  10, -20,  100
-];
-
-// Zobrist Table
-let ZOBRIST_TABLE = new BigUint64Array(64 * 2);
-let ZOBRIST_BLACK_TURN;
-
-// Transposition Table (Simple array with BigInt keys is too slow in JS, use Map for correctness or 
-// large TypedArray as hash table. Using Map for code clarity and "good enough" performance 
-// in JS JIT, but for "World Class" we simulate a hash table).
-const TT_SIZE = 1 << 20; // ~1 million entries
-const TT_KEY = new BigUint64Array(TT_SIZE);
-const TT_VAL = new Uint32Array(TT_SIZE); 
-// TT_VAL encoding: 
-// Bits 0-1: Flag (0: None, 1: Exact, 2: Lower, 3: Upper)
-// Bits 2-7: Depth
-// Bits 8-23: Score (offset by +30000)
-// Bits 24-29: Best Move
-
-function initZobrist() {
-    for (let i = 0; i < 128; i++) {
-        // Generate 64-bit random BigInt
-        let r = 0n;
-        for (let j = 0; j < 8; j++) {
-            r = (r << 8n) | BigInt(Math.floor(Math.random() * 256));
-        }
-        ZOBRIST_TABLE[i] = r;
-    }
-    let r = 0n;
-    for (let j = 0; j < 8; j++) {
-        r = (r << 8n) | BigInt(Math.floor(Math.random() * 256));
-    }
-    ZOBRIST_BLACK_TURN = r;
-}
-initZobrist();
-
-// --- Bitboard Logic ---
-
-function countSetBits(n) {
-    // Hamming weight for BigInt
-    let count = 0;
-    while (n > 0n) {
-        n &= (n - 1n);
-        count++;
-    }
-    return count;
-}
-
-function getMoves(my, opp) {
-    let moves = 0n;
-    let empty = ~(my | opp);
-    
-    // Unrolled for 8 directions
-    for (let dir of DIRECTIONS) {
-        let mask = DIR_MASKS[dir];
-        let candidates = (my << dir) & mask & opp; // Shift my disc to opponent
-        if (candidates === 0n) continue; // Optimization
-        
-        // Scan through opponent lines (max 6 times)
-        candidates |= (candidates << dir) & mask & opp;
-        candidates |= (candidates << dir) & mask & opp;
-        candidates |= (candidates << dir) & mask & opp;
-        candidates |= (candidates << dir) & mask & opp;
-        candidates |= (candidates << dir) & mask & opp;
-        candidates |= (candidates << dir) & mask & opp; // Should cover board width
-        
-        moves |= (candidates << dir) & empty;
-    }
-    return moves & MASK_FULL; // Clean up overflow
-}
-
-function getFlips(my, opp, moveSquare) {
-    let move = 1n << BigInt(moveSquare);
-    let flips = 0n;
-    
-    for (let dir of DIRECTIONS) {
-        let mask = DIR_MASKS[dir];
-        let potential = 0n;
-        let walker = move;
-        
-        while (true) {
-            walker = (walker << dir) & mask;
-            if ((walker & opp) === 0n) break;
-            potential |= walker;
-        }
-        
-        if ((walker & my) !== 0n) {
-            flips |= potential;
-        }
-    }
-    return flips;
-}
-
-function getHash(my, opp, color) {
-    // color: 0 for Black, 1 for White (turn)
-    let h = 0n;
-    if (color === 0) h ^= ZOBRIST_BLACK_TURN;
-    
-    let tempMy = my;
-    while (tempMy) {
-        let lsb = tempMy & -tempMy;
-        // Use bit scan to find index? JS BigInt doesn't have clz/ctz easily. 
-        // Since we need speed, we iterate sparsely.
-        // Optimization: Manual CTZ loop or simple iteration 0..63
-        // For hashing full board, iteration is better.
-        // BUT, we can update hash incrementally in search. 
-        // For simplicity in this implementation, we recompute or use a simpler loop.
-        // Let's do the slow full recompute only at root or use incremental updates if possible.
-        // Given JS limitations, let's iterate 0-63 for correct hashing.
-        tempMy &= (tempMy - 1n);
-    }
-    // Actually, complete rehash is slow. We should maintain hash.
-    // However, for this single file constraint, let's iterate.
-    // Optimized loop:
-    for(let i=0; i<64; i++) {
-        if ((my >> BigInt(i)) & 1n) h ^= ZOBRIST_TABLE[i];
-        if ((opp >> BigInt(i)) & 1n) h ^= ZOBRIST_TABLE[64 + i];
-    }
-    return h;
-}
-
-// --- Evaluation ---
-
-// Frontiers: empty squares adjacent to opponent discs
-function countFrontier(my, opp) {
-    let empty = ~(my | opp);
-    let frontier = 0n;
-    for (let dir of DIRECTIONS) {
-        frontier |= (my << dir) & DIR_MASKS[dir] & empty;
-    }
-    return countSetBits(frontier);
-}
-
-function evaluate(my, opp, moves, myCount, oppCount) {
-    // 1. Material Difference (weak early, strong late)
-    let discDiff = myCount - oppCount;
-    
-    // 2. Mobility (Number of legal moves)
-    let myMobility = countSetBits(moves);
-    // Need opponent moves roughly
-    let oppMoves = getMoves(opp, my);
-    let oppMobility = countSetBits(oppMoves);
-    
-    if (myMobility === 0 && oppMobility === 0) {
-        // Game Over
-        return discDiff > 0 ? 100000 : (discDiff < 0 ? -100000 : 0);
-    }
-
-    // 3. Corner Control
-    let corners = 0x8100000000000081n;
-    let myCorners = countSetBits(my & corners);
-    let oppCorners = countSetBits(opp & corners);
-
-    // 4. Stability (simplified: corners + stable edges)
-    // A rigorous stable disc count is complex. We use weights + corners.
-    
-    // 5. Positional Weights
-    let posScore = 0;
-    // Iterate set bits for weights
-    // Optimized:
-    for (let i = 0; i < 64; i++) {
-        let bit = 1n << BigInt(i);
-        if (my & bit) posScore += STATIC_WEIGHTS[63-i]; // 63-i because board layout
-        else if (opp & bit) posScore -= STATIC_WEIGHTS[63-i];
-    }
-
-    // Phase calculation
-    let totalDiscs = myCount + oppCount;
-    
-    // Dynamic Weights based on Game Phase
-    let w_mob = 0, w_pos = 0, w_disc = 0, w_corn = 0;
-
-    if (totalDiscs < 20) {
-        // Opening
-        w_mob = 20; w_pos = 4; w_disc = 0; w_corn = 800;
-    } else if (totalDiscs <= 50) {
-        // Midgame
-        w_mob = 15; w_pos = 3; w_disc = 2; w_corn = 1000;
-    } else {
-        // Endgame - transition to disc count
-        w_mob = 5; w_pos = 1; w_disc = 10; w_corn = 1000;
-    }
-
-    let score = 
-        (myMobility - oppMobility) * w_mob +
-        posScore * w_pos +
-        (myCorners - oppCorners) * w_corn +
-        discDiff * w_disc;
-        
-    return score;
-}
-
-// --- Search Engine ---
-
-let nodes = 0;
-let startTime = 0;
-let timeLimit = 0;
-let stopSearch = false;
-
-const INF = 1000000;
-
-// Store TT
-function ttStore(hash, depth, score, flag, bestMove) {
-    let idx = Number(hash % BigInt(TT_SIZE)); // Simple modulo hashing
-    
-    // Offset score for storage
-    let storedScore = score + 30000;
-    if (storedScore < 0) storedScore = 0;
-    if (storedScore > 60000) storedScore = 60000;
-
-    let val = (flag & 0x3) | 
-              ((depth & 0x3F) << 2) | 
-              ((storedScore & 0xFFFF) << 8) |
-              ((bestMove & 0x3F) << 24);
-              
-    TT_KEY[idx] = hash;
-    TT_VAL[idx] = val;
-}
-
-// Probe TT
-function ttProbe(hash, depth, alpha, beta) {
-    let idx = Number(hash % BigInt(TT_SIZE));
-    if (TT_KEY[idx] === hash) {
-        let val = TT_VAL[idx];
-        let entryDepth = (val >> 2) & 0x3F;
-        let entryFlag = val & 0x3;
-        let entryScore = ((val >> 8) & 0xFFFF) - 30000;
-        let entryMove = (val >> 24) & 0x3F;
-
-        if (entryDepth >= depth) {
-            if (entryFlag === 1) return { score: entryScore, move: entryMove }; // Exact
-            if (entryFlag === 2 && entryScore <= alpha) return { score: alpha, move: entryMove }; // Upper bound (fail low) - technically stored as Lower but logic inverted for Nega
-            if (entryFlag === 3 && entryScore >= beta) return { score: beta, move: entryMove }; // Lower bound (fail high)
-        }
-        return { move: entryMove }; // Return move for ordering even if depth is low
-    }
-    return null;
-}
-
-// Move Ordering
-function getOrderedMoves(movesBitboard, bestMove) {
-    let moveList = [];
-    while (movesBitboard) {
-        // Extract LSB
-        let bit = movesBitboard & -movesBitboard; // 2^n
-        movesBitboard &= (movesBitboard - 1n);
-        
-        // Convert bit to index 0-63
-        // Hacky log2 for BigInt or loop
-        let idx = 0;
-        let temp = bit;
-        while ((temp >>= 1n)) idx++;
-        
-        let score = 0;
-        if (idx === bestMove) score = 10000; // PV move
-        else if ((bit & 0x8100000000000081n)) score = 1000; // Corner
-        else if ((bit & 0x0042000000004200n)) score = -500; // C-squares (dangerous)
-        else if ((bit & 0x0024000000002400n)) score = -1000; // X-squares (very dangerous)
-        
-        moveList.push({ idx: idx, score: score, bit: bit });
-    }
-    moveList.sort((a, b) => b.score - a.score);
-    return moveList;
-}
-
-// Alpha-Beta Search
-function alphaBeta(my, opp, depth, alpha, beta, passed) {
-    if ((nodes & 0xFFF) === 0) {
-        if (Date.now() - startTime > timeLimit) stopSearch = true;
-    }
-    if (stopSearch) return 0;
-    nodes++;
-
-    let hash = getHash(my, opp, 0); // Assume 'my' is always current color in logic
-    let ttEntry = ttProbe(hash, depth, alpha, beta);
-    if (ttEntry && ttEntry.score !== undefined) return ttEntry.score;
-    
-    // Leaf or Max Depth
-    if (depth === 0) {
-        let mCount = countSetBits(my);
-        let oCount = countSetBits(opp);
-        let m = getMoves(my, opp);
-        let val = evaluate(my, opp, m, mCount, oCount);
-        return val;
-    }
-
-    let moves = getMoves(my, opp);
-    
-    if (moves === 0n) {
-        if (passed) {
-            // Both passed - Game Over
-            let diff = countSetBits(my) - countSetBits(opp);
-            return diff > 0 ? 100000 + diff : (diff < 0 ? -100000 + diff : 0);
-        }
-        // Pass
-        return -alphaBeta(opp, my, depth, -beta, -alpha, true);
-    }
-
-    let moveList = getOrderedMoves(moves, ttEntry ? ttEntry.move : -1);
-    
-    let bestScore = -INF;
-    let bestMove = -1;
-    let type = 2; // Default Upper bound (Fail Low)
-
-    for (let i = 0; i < moveList.length; i++) {
-        let m = moveList[i].idx;
-        
-        // Make move
-        let flips = getFlips(my, opp, m);
-        let moveBit = (1n << BigInt(m));
-        let nextMy = my | moveBit | flips;
-        let nextOpp = opp & ~flips;
-        
-        let score;
-        // PVS (Principal Variation Search)
-        if (i === 0) {
-            score = -alphaBeta(nextOpp, nextMy, depth - 1, -beta, -alpha, false);
-        } else {
-            // Null Window Search
-            score = -alphaBeta(nextOpp, nextMy, depth - 1, -alpha - 1, -alpha, false);
-            if (score > alpha && score < beta) {
-                // Re-search full window
-                score = -alphaBeta(nextOpp, nextMy, depth - 1, -beta, -alpha, false);
-            }
-        }
-
-        if (stopSearch) return 0;
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestMove = m;
-            if (score > alpha) {
-                alpha = score;
-                type = 1; // Exact
-            }
-            if (alpha >= beta) {
-                type = 3; // Lower bound (Cutoff)
-                break;
-            }
-        }
-    }
-
-    ttStore(hash, depth, bestScore, type, bestMove);
-    return bestScore;
-}
-
-// Exact Endgame Solver (Solve disc difference)
-function solveEndgame(my, opp, alpha, beta, passed) {
-    if (stopSearch) return 0; // Should not timeout in endgame ideally, but safe check
-    nodes++;
-
-    let moves = getMoves(my, opp);
-    
-    if (moves === 0n) {
-        if (passed) {
-            let diff = countSetBits(my) - countSetBits(opp);
-            return diff;
-        }
-        return -solveEndgame(opp, my, -beta, -alpha, true);
-    }
-
-    let moveList = getOrderedMoves(moves, -1);
-    let bestScore = -INF;
-
-    for (let mv of moveList) {
-        let m = mv.idx;
-        let flips = getFlips(my, opp, m);
-        let nextMy = my | (1n << BigInt(m)) | flips;
-        let nextOpp = opp & ~flips;
-
-        let score = -solveEndgame(nextOpp, nextMy, -beta, -alpha, false);
-        
-        if (score > bestScore) {
-            bestScore = score;
-            if (score > alpha) alpha = score;
-            if (alpha >= beta) return alpha; // Cutoff
-        }
-    }
-    return bestScore;
-}
-
-// Root Search
-function getBestMove(black, white, turn, maxTime, maxDepth) {
-    startTime = Date.now();
-    timeLimit = maxTime;
-    stopSearch = false;
-    nodes = 0;
-    
-    let my = (turn === 0) ? black : white;
-    let opp = (turn === 0) ? white : black;
-    
-    // Check empty squares
-    let emptyCount = 64 - countSetBits(my | opp);
-    
-    // Use Endgame Solver?
-    if (emptyCount <= 18) { // Safe threshold for JS exact solver
-        postMessage({ type: 'info', msg: 'Solving endgame...' });
-        let moves = getMoves(my, opp);
-        let moveList = getOrderedMoves(moves, -1);
-        let bestM = -1;
-        let alpha = -INF;
-        let beta = INF;
-        
-        for (let mv of moveList) {
-            let m = mv.idx;
-            let flips = getFlips(my, opp, m);
-            let nextMy = my | (1n << BigInt(m)) | flips;
-            let nextOpp = opp & ~flips;
+    <!-- 游戏主区域 -->
+    <div class="relative">
+        <!-- 棋盘背景与边框 -->
+        <div class="bg-[#1a1a1a] p-3 rounded-lg shadow-2xl border-4 border-[#3d2b1f]">
+            <!-- 8x8 网格 -->
+            <div class="grid grid-cols-8 gap-1 bg-[#1a1a1a] border-2 border-black" id="board" style="width: min(90vw, 500px); height: min(90vw, 500px);">
+                <!-- 格子由 JS 生成 -->
+            </div>
             
-            let score = -solveEndgame(nextOpp, nextMy, -beta, -alpha, false);
-            postMessage({ type: 'stats', depth: 'Endgame', score: score, nodes: nodes });
+            <!-- 棋盘上的标记点 (星位) -->
+            <div class="absolute top-[3px] left-[3px] w-full h-full pointer-events-none z-10" id="dots-container" style="width: min(90vw, 500px); height: min(90vw, 500px);"></div>
+        </div>
 
-            if (score > alpha) {
-                alpha = score;
-                bestM = m;
+        <!-- AI 思考时的遮罩 -->
+        <div id="ai-thinking" class="absolute inset-0 bg-black/20 z-20 hidden flex items-center justify-center rounded-lg">
+            <div class="bg-gray-900/90 text-blue-400 px-6 py-3 rounded-full flex items-center gap-3 border border-blue-500/30 shadow-xl backdrop-blur-sm">
+                <div class="w-3 h-3 bg-blue-500 rounded-full thinking-pulse"></div>
+                <span class="font-bold tracking-wider">AI 思考中...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="w-full max-w-2xl mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <label class="block text-sm text-gray-400 mb-2">AI 强度 (Level <span id="difficulty-val">8</span>)</label>
+            <input type="range" min="1" max="10" value="8" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500" id="difficulty-slider">
+            <div class="flex justify-between text-xs text-gray-500 mt-1">
+                <span>新手</span>
+                <span>普通</span>
+                <span>大师</span>
+                <span class="text-red-400 font-bold">无敌</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+            <button onclick="game.newGame()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg active:transform active:scale-95">
+                新局
+            </button>
+            <button onclick="game.undo()" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg active:transform active:scale-95">
+                悔棋
+            </button>
+            <button onclick="game.switchSide()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg active:transform active:scale-95">
+                换边
+            </button>
+        </div>
+    </div>
+    
+    <div class="mt-4 text-gray-500 text-xs text-center">
+        Powered by PVS / Bitboard / Zobrist Hash / Endgame Solver
+    </div>
+
+    <!-- AI WORKER SCRIPT (作为 Blob 载入，避免跨域和多文件问题) -->
+    <script id="worker-code" type="javascript/worker">
+        /* * 高性能黑白棋 AI 核心 (Web Worker)
+         * 使用 BigInt 实现 64 位 Bitboard
+         */
+
+        // --- 常量定义 ---
+        const BLACK = 0;
+        const WHITE = 1;
+        const EMPTY = 2;
+        
+        // 位运算辅助常量
+        const MASK_CORNER = 0x8100000000000081n;
+        const MASK_X_SQUARES = 0x0042000000004200n;
+        const MASK_C_SQUARES = 0x4281000000008142n;
+        
+        // Zobrist Hash 表
+        let zobristTable = [];
+        let zobristTurn = 0n;
+
+        // 置换表
+        const TT_SIZE = 1 << 20; // ~100万个条目
+        let tt = new Map(); // 使用 Map 代替固定数组以节省初始内存，JS Map 性能足够好
+
+        // 预计算数据
+        let movesArray = new Int8Array(64); // 用于复用
+
+        // 初始化
+        function initAI() {
+            // 初始化 Zobrist
+            for (let i = 0; i < 64; i++) {
+                zobristTable[i] = [randomBigInt(), randomBigInt()];
             }
+            zobristTurn = randomBigInt();
         }
-        return bestM;
-    }
 
-    // Iterative Deepening
-    let bestMove = -1;
-    let alpha = -INF;
-    let beta = INF;
-    
-    // Initial shallow search for ordering
-    let moves = getMoves(my, opp);
-    if (moves === 0n) return -1; // Should be handled by controller, but safe check
-    
-    for (let d = 1; d <= maxDepth; d++) {
-        let score = alphaBeta(my, opp, d, -INF, INF, false);
-        
-        if (stopSearch) break;
-
-        // Extract best move from TT for root
-        let hash = getHash(my, opp, 0);
-        let ttEntry = ttProbe(hash, d, -INF, INF);
-        
-        if (ttEntry) {
-            bestMove = ttEntry.move;
-            postMessage({ 
-                type: 'stats', 
-                depth: d, 
-                score: score, 
-                nodes: nodes,
-                nps: Math.round(nodes / ((Date.now() - startTime + 1) / 1000))
-            });
+        function randomBigInt() {
+            let n = 0n;
+            for (let i = 0; i < 64; i++) {
+                if (Math.random() > 0.5) n |= (1n << BigInt(i));
+            }
+            return n;
         }
-        
-        // If winning is certain (mate score), break
-        if (score > 90000 || score < -90000) break;
-    }
-    
-    return bestMove;
-}
 
-onmessage = function(e) {
-    const { black, white, turn, difficulty } = e.data;
-    
-    let b = BigInt(black);
-    let w = BigInt(white);
-    
-    // Config based on difficulty
-    // Lv 1: Depth 1, 100ms
-    // Lv 5: Depth 6, 2s
-    // Lv 10: Depth 14+, 15s+
-    let d = parseInt(difficulty);
-    let maxDepth = d + 2;
-    let time = 1000;
-    
-    if (d <= 2) time = 200;
-    else if (d <= 4) time = 1000;
-    else if (d <= 8) time = 5000;
-    else time = 30000; // Max strength
+        // --- Bitboard 核心逻辑 ---
 
-    let move = getBestMove(b, w, turn, time, maxDepth);
-    postMessage({ type: 'result', move: move });
-};
-</script>
-
-<script>
-    // --- Main UI Controller ---
-
-    // Game State
-    let board = new Array(64).fill(0); // 0: Empty, 1: Black, 2: White
-    let turn = 1; // 1: Black, 2: White
-    let gameActive = false;
-    let history = [];
-    let worker;
-    let aiColor = 2; // White by default
-
-    // Bitboard helpers for Main Thread (simplified)
-    function getBitboard(player) {
-        let n = 0n;
-        for(let i=0; i<64; i++) {
-            if(board[i] === player) n |= (1n << BigInt(i));
+        // 计算设置的位数 (Population Count)
+        function popcnt(b) {
+            let c = 0;
+            while (b > 0n) {
+                b &= (b - 1n);
+                c++;
+            }
+            return c;
         }
-        return n.toString(); // Pass as string to worker
-    }
 
-    const DIRECTIONS = [-9, -8, -7, -1, 1, 7, 8, 9];
-
-    function initGame() {
-        board.fill(0);
-        board[27] = 2; board[28] = 1;
-        board[35] = 1; board[36] = 2;
-        turn = 1;
-        history = [];
-        gameActive = true;
-        updateUI();
-        document.getElementById('game-status').textContent = "Game Start! Black's Turn";
-        
-        if (aiColor === 1) setTimeout(aiMove, 500);
-    }
-
-    function renderBoard() {
-        const boardEl = document.getElementById('board');
-        boardEl.innerHTML = '';
-        
-        let lastMove = history.length > 0 ? history[history.length-1].move : -1;
-        let validMoves = getValidMoves(turn);
-
-        for (let i = 0; i < 64; i++) {
-            const cell = document.createElement('div');
-            cell.className = 'cell';
-            cell.dataset.idx = i;
+        // Kogge-Stone 算法生成合法走法
+        function getMoves(own, opp) {
+            let empty = ~(own | opp);
+            let candidates = 0n;
             
-            // Coordinates
-            if (i % 8 === 0) {
-                let l = document.createElement('span');
-                l.className = 'coordinate row-label';
-                l.textContent = (i/8 + 1);
-                cell.appendChild(l);
-            }
-            if (i >= 56) {
-                let l = document.createElement('span');
-                l.className = 'coordinate col-label';
-                l.textContent = String.fromCharCode(65 + (i%8));
-                cell.appendChild(l);
+            // 8个方向的位移逻辑
+            // 左右需处理边界 wrap-around，使用 mask 0x7E7E...
+            const maskLR = 0x7e7e7e7e7e7e7e7en;
+            
+            // 辅助函数：沿方向 dir 搜索夹住的子
+            // dirFn: 移位函数, mask: 边界掩码
+            const shifts = [
+                (b) => (b << 1n) & maskLR, // East
+                (b) => (b >> 1n) & maskLR, // West
+                (b) => (b << 8n),          // South
+                (b) => (b >> 8n),          // North
+                (b) => (b << 9n) & maskLR, // SouthEast
+                (b) => (b >> 7n) & maskLR, // NorthEast
+                (b) => (b << 7n) & maskLR, // SouthWest
+                (b) => (b >> 9n) & maskLR  // NorthWest
+            ];
+
+            for (let shift of shifts) {
+                let x = shift(own) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                x |= shift(x) & opp;
+                candidates |= shift(x) & empty;
             }
 
-            if (board[i] !== 0) {
-                const disc = document.createElement('div');
-                disc.className = `disc ${board[i] === 1 ? 'black' : 'white'}`;
+            return candidates;
+        }
+
+        // 计算翻转的棋子 (不改变状态，只返回翻转位的掩码)
+        function getFlips(move, own, opp) {
+            let flips = 0n;
+            let m = 1n << BigInt(move);
+            const maskLR = 0x7e7e7e7e7e7e7e7en;
+
+            const dirs = [1n, -1n, 8n, -8n, 9n, -7n, 7n, -9n];
+            
+            for (let dir of dirs) {
+                let mask = 0n;
+                let current = m;
+                // 是否需要水平边界检查
+                let checkLR = (dir === 1n || dir === -1n || dir === 9n || dir === -7n || dir === 7n || dir === -9n);
+
+                while (true) {
+                    if (checkLR) {
+                         // 检查是否将移出边界
+                         if (((current >> 1n) & 0x8080808080808080n) && (dir === 1n || dir === 9n || dir === -7n)) break; // Right edge
+                         if (((current << 1n) & 0x0101010101010101n) && (dir === -1n || dir === -9n || dir === 7n)) break; // Left edge
+                         // (简化的边界检查，实际上直接位移后 & maskLR 更通用，但这里是逐格检查)
+                    }
+                    
+                    // 实际位移
+                    if (dir > 0) current <<= dir; else current >>= -dir;
+                    
+                    // 检查水平溢出 (更严格)
+                    if (checkLR) {
+                        let prev = (dir > 0) ? (current >> dir) : (current << -dir);
+                        let diff = 0; 
+                        // 这里逻辑稍复杂，改用更稳健的逐格扫描
+                    }
+                }
+            }
+            
+            // 重新实现简化的逐格扫描，确保准确性
+            for (let dir of [-1, 1, -8, 8, -9, -7, 7, 9]) {
+                let mask = 0n;
+                let r = Math.floor(move / 8);
+                let c = move % 8;
+                let dr = 0, dc = 0;
                 
-                // Animation check
-                if (history.length > 0) {
-                    let last = history[history.length-1];
-                    if (last.flipped.includes(i)) {
-                        disc.classList.add(board[i] === 1 ? 'flipping-to-black' : 'flipping-to-white');
+                if (dir === -1) dc = -1;
+                else if (dir === 1) dc = 1;
+                else if (dir === -8) dr = -1;
+                else if (dir === 8) dr = 1;
+                else if (dir === -9) { dr = -1; dc = -1; }
+                else if (dir === -7) { dr = -1; dc = 1; }
+                else if (dir === 7) { dr = 1; dc = -1; }
+                else if (dir === 9) { dr = 1; dc = 1; }
+
+                let r1 = r + dr, c1 = c + dc;
+                let currentMask = 0n;
+                let valid = false;
+
+                while (r1 >= 0 && r1 < 8 && c1 >= 0 && c1 < 8) {
+                    let idx = r1 * 8 + c1;
+                    let bit = 1n << BigInt(idx);
+                    
+                    if ((opp & bit) !== 0n) {
+                        currentMask |= bit;
+                    } else if ((own & bit) !== 0n) {
+                        valid = true;
+                        break;
+                    } else {
+                        break;
+                    }
+                    r1 += dr; c1 += dc;
+                }
+                if (valid) flips |= currentMask;
+            }
+            return flips;
+        }
+
+        // --- 评估函数 ---
+
+        // 位置权重图 (8x8)
+        // 100, -20, 10,  5,  5, 10, -20, 100
+        // -20, -50, -2, -2, -2, -2, -50, -20
+        //  10,  -2, -1, -1, -1, -1,  -2,  10
+        //   5,  -2, -1, -1, -1, -1,  -2,   5
+        // ... 对称
+        const WEIGHTS = [
+             100, -20, 10,  5,  5, 10, -20, 100,
+             -20, -50, -2, -2, -2, -2, -50, -20,
+              10,  -2, -1, -1, -1, -1,  -2,  10,
+               5,  -2, -1, -1, -1, -1,  -2,   5,
+               5,  -2, -1, -1, -1, -1,  -2,   5,
+              10,  -2, -1, -1, -1, -1,  -2,  10,
+             -20, -50, -2, -2, -2, -2, -50, -20,
+             100, -20, 10,  5,  5, 10, -20, 100
+        ];
+
+        function evaluate(own, opp, ownMoves, oppMoves, emptyCount) {
+            let score = 0;
+
+            // 1. 位置权重
+            // 这部分可以用位操作优化，但循环 64 次在 JS 中依然很快
+            let myPos = own;
+            let opPos = opp;
+            for(let i=0; i<64; i++) {
+                if ((myPos & 1n)) score += WEIGHTS[i];
+                else if ((opPos & 1n)) score -= WEIGHTS[i];
+                myPos >>= 1n;
+                opPos >>= 1n;
+            }
+
+            // 2. 行动力 (Mobility)
+            // 能够走的步数越多越好，限制对手越好
+            let myMob = popcnt(ownMoves);
+            let opMob = popcnt(oppMoves);
+            // 动态权重：前期行动力重要，后期棋子数重要
+            let mobWeight = (emptyCount > 20) ? 15 : 5;
+            score += (myMob - opMob) * mobWeight;
+
+            // 3. 潜在行动力 (Frontier Disks) - 简化的
+            // 靠近空位的棋子通常不好
+            // 此处省略复杂位运算，用Mobility大致覆盖
+
+            // 4. 奇偶性 (Parity)
+            // 如果空位是偶数，最后一步是后手下（通常有利）
+            // 简单处理：如果是最后几步，给予最后下子的一方加分
+
+            // 5. 棋子差 (Disc Difference) - 仅在终局前非常接近时或终局计算
+            if (emptyCount < 10) {
+                score += (popcnt(own) - popcnt(opp)) * 10;
+            }
+
+            return score;
+        }
+
+        // --- 搜索算法 (PVS) ---
+
+        let nodes = 0;
+        let stopSearch = false;
+        let startTime = 0;
+        let timeLimit = 1000;
+
+        function search(own, opp, turn, depth, alpha, beta, passed) {
+            nodes++;
+            
+            // 定期检查时间 (每 2048 个节点)
+            if ((nodes & 2047) === 0) {
+                if (Date.now() - startTime > timeLimit) {
+                    stopSearch = true;
+                }
+            }
+            if (stopSearch) return 0;
+
+            // 哈希检查 (置换表)
+            // 简化：这里不做完整 Zobrist，因为 JS Map 对于大数据量存取有开销
+            // 若要极致性能，需实现基于 ArrayBuffer 的 TT
+            
+            let legalMoves = getMoves(own, opp);
+
+            // 游戏结束判定
+            if (legalMoves === 0n) {
+                if (passed) {
+                    // 双方都 pass，游戏结束
+                    let diff = popcnt(own) - popcnt(opp);
+                    if (diff > 0) return 10000 + diff;
+                    if (diff < 0) return -10000 + diff;
+                    return 0;
+                }
+                // 我方无棋可走，让给对方
+                return -search(opp, own, 1-turn, depth, -beta, -alpha, true);
+            }
+
+            // 叶子节点
+            if (depth === 0) {
+                let oppMoves = getMoves(opp, own);
+                let empty = 64 - popcnt(own | opp);
+                return evaluate(own, opp, legalMoves, oppMoves, empty);
+            }
+
+            // 走法生成与排序
+            let moves = [];
+            let temp = legalMoves;
+            while (temp > 0n) {
+                // 提取最低位的 1 (LSB)
+                let lsb = temp & -temp; // BigInt 负数是补码
+                // 找出位置索引
+                // BigInt 没有 Math.log2，需要快速转换
+                let idx = -1;
+                // 简单查找（或者使用去重表）
+                // 这里的位操作转索引在 JS BigInt 中稍慢，但可接受
+                let str = lsb.toString(2);
+                idx = str.length - 1; 
+
+                // 启发式排序分数
+                let sortScore = 0;
+                // 角点优先
+                if (lsb & MASK_CORNER) sortScore = 1000;
+                // 避免 C/X 位 (简单判断)
+                else if (lsb & MASK_X_SQUARES) sortScore = -100;
+                else if (lsb & MASK_C_SQUARES) sortScore = -50;
+                
+                moves.push({ bits: lsb, idx: idx, score: sortScore });
+                temp ^= lsb; // 清除最低位
+            }
+
+            // 排序：分数高的在前
+            moves.sort((a, b) => b.score - a.score);
+
+            // PVS 核心循环
+            let bestScore = -Infinity;
+            let b = beta;
+            
+            for (let i = 0; i < moves.length; i++) {
+                let m = moves[i];
+                let flips = getFlips(m.idx, own, opp);
+                
+                // 执行走法
+                let newOwn = own | m.bits | flips;
+                let newOpp = opp & ~flips;
+
+                let score;
+                if (i === 0) {
+                    score = -search(newOpp, newOwn, 1-turn, depth - 1, -b, -alpha, false);
+                } else {
+                    // Null window search
+                    score = -search(newOpp, newOwn, 1-turn, depth - 1, -alpha - 1, -alpha, false);
+                    if (score > alpha && score < beta) {
+                        // Re-search
+                        score = -search(newOpp, newOwn, 1-turn, depth - 1, -beta, -alpha, false);
                     }
                 }
                 
-                cell.appendChild(disc);
-            } else if (gameActive && turn !== aiColor && validMoves.includes(i)) {
-                cell.classList.add('valid-move');
-                cell.onclick = () => userMove(i);
-            }
-            
-            if (i === lastMove) cell.classList.add('last-move');
-            
-            boardEl.appendChild(cell);
-        }
-    }
+                if (stopSearch) return 0;
 
-    function updateUI() {
-        let b = board.filter(x => x === 1).length;
-        let w = board.filter(x => x === 2).length;
-        document.getElementById('score-black').textContent = b;
-        document.getElementById('score-white').textContent = w;
-        
-        const sb = document.getElementById('black-score-box');
-        const sw = document.getElementById('white-score-box');
-        if (turn === 1) { sb.classList.add('active-turn'); sw.classList.remove('active-turn'); }
-        else { sw.classList.add('active-turn'); sb.classList.remove('active-turn'); }
-
-        renderBoard();
-    }
-
-    function isValidMove(idx, player) {
-        if (board[idx] !== 0) return false;
-        let opp = player === 1 ? 2 : 1;
-        
-        for (let dir of DIRECTIONS) {
-            let x = idx % 8;
-            let y = Math.floor(idx / 8);
-            let dx = (dir === 1 || dir === -7 || dir === 9) ? 1 : (dir === -1 || dir === 7 || dir === -9) ? -1 : 0;
-            let dy = (dir === 8 || dir === 7 || dir === 9) ? 1 : (dir === -8 || dir === -7 || dir === -9) ? -1 : 0;
-            
-            let c = 1;
-            let hasOpp = false;
-            
-            while (true) {
-                let nx = x + dx * c;
-                let ny = y + dy * c;
-                if (nx < 0 || nx > 7 || ny < 0 || ny > 7) break;
-                
-                let nIdx = ny * 8 + nx;
-                if (board[nIdx] === opp) {
-                    hasOpp = true;
-                } else if (board[nIdx] === player) {
-                    if (hasOpp) return true;
-                    break;
-                } else {
-                    break;
+                if (score > bestScore) {
+                    bestScore = score;
                 }
-                c++;
-            }
-        }
-        return false;
-    }
-
-    function getValidMoves(player) {
-        let moves = [];
-        for (let i = 0; i < 64; i++) {
-            if (isValidMove(i, player)) moves.push(i);
-        }
-        return moves;
-    }
-
-    function executeMove(idx, player) {
-        let opp = player === 1 ? 2 : 1;
-        let flipped = [];
-        board[idx] = player;
-        
-        for (let dir of DIRECTIONS) {
-            let x = idx % 8;
-            let y = Math.floor(idx / 8);
-            let dx = (dir === 1 || dir === -7 || dir === 9) ? 1 : (dir === -1 || dir === 7 || dir === -9) ? -1 : 0;
-            let dy = (dir === 8 || dir === 7 || dir === 9) ? 1 : (dir === -8 || dir === -7 || dir === -9) ? -1 : 0;
-            
-            let c = 1;
-            let path = [];
-            
-            while (true) {
-                let nx = x + dx * c;
-                let ny = y + dy * c;
-                if (nx < 0 || nx > 7 || ny < 0 || ny > 7) { path = []; break; }
-                
-                let nIdx = ny * 8 + nx;
-                if (board[nIdx] === opp) {
-                    path.push(nIdx);
-                } else if (board[nIdx] === player) {
-                    break;
-                } else {
-                    path = []; break;
+                if (score > alpha) {
+                    alpha = score;
+                    if (alpha >= beta) break; // Beta 剪枝
                 }
-                c++;
             }
-            path.forEach(p => {
-                board[p] = player;
-                flipped.push(p);
-            });
+
+            return bestScore;
         }
-        return flipped;
-    }
 
-    function userMove(idx) {
-        if (!gameActive || turn === aiColor) return;
-        
-        let flipped = executeMove(idx, turn);
-        history.push({ board: JSON.parse(JSON.stringify(board)), turn: turn, move: idx, flipped: flipped });
-        
-        turn = turn === 1 ? 2 : 1;
-        updateUI();
-        checkGameState();
-    }
+        // 终局完美解 (Endgame Solver)
+        function solveEndgame(own, opp, alpha, beta, passed) {
+            nodes++;
+            // 终局不限时，或者给一个很大的限制
+            // 这里为了防止浏览器卡死，还是保留 stopSearch 检查，但由主线程控制
 
-    function checkGameState() {
-        let valid = getValidMoves(turn);
-        if (valid.length === 0) {
-            turn = turn === 1 ? 2 : 1;
-            valid = getValidMoves(turn);
-            if (valid.length === 0) {
-                gameActive = false;
-                let b = board.filter(x => x === 1).length;
-                let w = board.filter(x => x === 2).length;
-                let msg = b > w ? "Black Wins!" : (w > b ? "White Wins!" : "Draw!");
-                document.getElementById('game-status').textContent = `Game Over. ${msg}`;
-                alert(msg);
-                return;
+            let legalMoves = getMoves(own, opp);
+
+            if (legalMoves === 0n) {
+                if (passed) {
+                    let diff = popcnt(own) - popcnt(opp);
+                    if (diff > 0) return 10000 + diff; // 赢
+                    if (diff < 0) return -10000 + diff; // 输
+                    return 0; // 平
+                }
+                return -solveEndgame(opp, own, -beta, -alpha, true);
             }
-            document.getElementById('game-status').textContent = `${turn === 1 ? "Black" : "White"} passed.`;
-            updateUI(); // Update to show turn change
-        } else {
-            document.getElementById('game-status').textContent = turn === 1 ? "Black's Turn" : "White's Turn";
+
+            let temp = legalMoves;
+            let bestScore = -Infinity;
+
+            // Move Ordering is less critical in pure endgame solver but still helps
+            // 直接遍历
+            while (temp > 0n) {
+                let lsb = temp & -temp;
+                // 获取索引
+                let s = lsb.toString(2);
+                let idx = s.length - 1; 
+                
+                let flips = getFlips(idx, own, opp);
+                let newOwn = own | lsb | flips;
+                let newOpp = opp & ~flips;
+
+                let val = -solveEndgame(newOpp, newOwn, -beta, -alpha, false);
+                
+                if (val > bestScore) bestScore = val;
+                if (val > alpha) {
+                    alpha = val;
+                    if (alpha >= beta) break;
+                }
+                temp ^= lsb;
+            }
+            return bestScore;
         }
 
-        if (gameActive && turn === aiColor) {
-            aiMove();
-        }
-    }
 
-    // --- AI Integration ---
-
-    function initWorker() {
-        const blob = new Blob([document.getElementById('worker-code').textContent], { type: "text/javascript" });
-        worker = new Worker(window.URL.createObjectURL(blob));
+        // --- 主接口 ---
         
-        worker.onmessage = function(e) {
+        // 迭代加深搜索
+        function getBestMove(boardBlackStr, boardWhiteStr, color, level) {
+            // 解析 BigInt
+            let own = (color === BLACK) ? BigInt(boardBlackStr) : BigInt(boardWhiteStr);
+            let opp = (color === BLACK) ? BigInt(boardWhiteStr) : BigInt(boardBlackStr);
+            
+            nodes = 0;
+            stopSearch = false;
+            startTime = Date.now();
+
+            let emptyCount = 64 - popcnt(own | opp);
+            
+            // 难度配置
+            let maxDepth;
+            if (level <= 2) maxDepth = 1;
+            else if (level <= 4) maxDepth = 4;
+            else if (level <= 6) maxDepth = 6;
+            else if (level <= 8) maxDepth = 10;
+            else maxDepth = 20; // 几乎无限制
+
+            // 时间限制 (毫秒)
+            if (level >= 10) timeLimit = 5000; // 最强模式给5秒
+            else timeLimit = 1500; // 普通模式快一点
+
+            // 终局模式触发
+            // 如果剩余步数很少，且等级高，直接全算
+            if (emptyCount <= 16 && level >= 9) {
+                // 切换到 SolveEndgame 逻辑，不限制深度
+                // 这里简单复用 search 结构但深度设为 64
+                // 为了 UX，这里如果步数非常少(<=14)可以全搜，稍微多一点用深层搜索
+                maxDepth = 64;
+                timeLimit = 10000;
+            }
+
+            let legalMoves = getMoves(own, opp);
+            if (legalMoves === 0n) return -1; // Pass
+
+            // 生成候选走法列表
+            let moves = [];
+            let temp = legalMoves;
+            while (temp > 0n) {
+                let lsb = temp & -temp;
+                let s = lsb.toString(2);
+                let idx = s.length - 1;
+                moves.push({ bits: lsb, idx: idx });
+                temp ^= lsb;
+            }
+
+            // 单一步骤直接返回
+            if (moves.length === 1) return moves[0].idx;
+
+            let bestMove = moves[0].idx;
+            let currentBestScore = -Infinity;
+
+            // 迭代加深循环
+            for (let d = 1; d <= maxDepth; d++) {
+                let alpha = -Infinity;
+                let beta = Infinity;
+                
+                // 当前深度的最佳候选
+                let iterBestMove = -1;
+                let iterBestScore = -Infinity;
+
+                // 根节点搜索
+                // 对第一层进行排序优化？(利用上一层的结果)
+                // 简单起见，按顺序搜
+
+                for (let i = 0; i < moves.length; i++) {
+                    let m = moves[i];
+                    let flips = getFlips(m.idx, own, opp);
+                    let newOwn = own | m.bits | flips;
+                    let newOpp = opp & ~flips;
+
+                    let score;
+                    // 若是终局模式，直接递归到底
+                    if (emptyCount <= 14 && level >= 9) {
+                         score = -solveEndgame(newOpp, newOwn, -beta, -alpha, false);
+                    } else {
+                         score = -search(newOpp, newOwn, 1-color, d - 1, -beta, -alpha, false);
+                    }
+
+                    // 检查超时
+                    if (stopSearch) break;
+
+                    m.lastScore = score; // 记录分数用于下一轮排序（简单实现）
+
+                    if (score > iterBestScore) {
+                        iterBestScore = score;
+                        iterBestMove = m.idx;
+                    }
+                    if (score > alpha) alpha = score;
+                }
+
+                if (stopSearch) break;
+
+                // 完成了一整层的搜索
+                bestMove = iterBestMove;
+                currentBestScore = iterBestScore;
+                
+                // 将上一层最好的步法排到最前 (简单 Move Ordering)
+                moves.sort((a, b) => b.lastScore - a.lastScore);
+
+                // 发送进度
+                postMessage({ type: 'progress', depth: d, nodes: nodes, time: Date.now() - startTime, score: currentBestScore });
+                
+                // 如果找到必胜路径 (分数极大)
+                if (currentBestScore > 9000) break;
+                // 如果终局全搜完成
+                if (d >= emptyCount) break;
+            }
+
+            return bestMove;
+        }
+
+        initAI();
+
+        self.onmessage = function(e) {
             const data = e.data;
-            if (data.type === 'result') {
-                document.getElementById('ai-stats').classList.remove('thinking');
-                let move = data.move;
-                if (move !== -1) {
-                    let flipped = executeMove(move, turn);
-                    history.push({ board: JSON.parse(JSON.stringify(board)), turn: turn, move: move, flipped: flipped });
-                    turn = turn === 1 ? 2 : 1;
-                    updateUI();
-                    checkGameState();
-                } else {
-                    // AI pass (should be handled by checkGameState logic, but safeguard)
-                    checkGameState();
-                }
-            } else if (data.type === 'stats') {
-                let scoreDisplay = data.score;
-                if (scoreDisplay > 90000) scoreDisplay = "Mate +" + (scoreDisplay - 100000);
-                else if (scoreDisplay < -90000) scoreDisplay = "Mate " + (scoreDisplay + 100000);
-                else scoreDisplay = (scoreDisplay / 100).toFixed(2);
-                
-                document.getElementById('ai-stats').innerHTML = `Depth: ${data.depth} | Eval: ${scoreDisplay} | Nodes: ${data.nodes} <span class="loading-spinner"></span>`;
+            if (data.type === 'think') {
+                const move = getBestMove(data.black, data.white, data.color, data.level);
+                postMessage({ type: 'done', move: move, nodes: nodes, time: Date.now() - startTime });
             }
         };
-    }
+    </script>
 
-    function aiMove() {
-        document.getElementById('ai-stats').classList.add('thinking');
-        
-        // Prepare data for BigInt board
-        // We pass turn as 0 for Black, 1 for White to match worker logic
-        worker.postMessage({
-            black: getBitboard(1),
-            white: getBitboard(2),
-            turn: turn === 1 ? 0 : 1,
-            difficulty: document.getElementById('difficulty').value
-        });
-    }
+    <!-- 主逻辑 JS -->
+    <script>
+        const BLACK = 0;
+        const WHITE = 1;
+        const EMPTY = 2;
 
-    // --- Event Listeners ---
+        class OthelloGame {
+            constructor() {
+                this.board = new Array(64).fill(EMPTY);
+                this.turn = BLACK; // 黑先
+                this.history = [];
+                this.aiWorker = null;
+                this.aiLevel = 8;
+                this.isThinking = false;
+                this.userColor = BLACK; 
+                this.gameOver = false;
+                
+                this.initWorker();
+                this.initBoardUI();
+                this.newGame();
 
-    document.getElementById('btn-new-game').onclick = () => {
-        if(confirm('Start a new game?')) initGame();
-    };
-
-    document.getElementById('btn-undo').onclick = () => {
-        if (history.length >= 2 && !document.getElementById('ai-stats').classList.contains('thinking')) {
-            history.pop(); // Remove AI move
-            history.pop(); // Remove Player move
-            // Restore state from last history item or init
-            if (history.length > 0) {
-                let state = history[history.length-1];
-                // Reconstruct board roughly? No, we saved full board state issues?
-                // Ah, history logic above pushed 'current' board state AFTER move.
-                // To undo, we need PREVIOUS state.
-                // Actually simpler: rebuild from scratch or store snapshots.
-                // Let's use snapshots.
-                // Wait, my history push stored the state AFTER move.
-                // So I need to go back 2 steps.
-                let target = history[history.length-1];
-                board = JSON.parse(JSON.stringify(target.board));
-                turn = target.turn === 1 ? 2 : 1; 
-                // Logic error in restoring: history saves state resulting from move.
-                // So we need to pop and use the one before? 
-                // Let's change logic: store SNAPSHOT BEFORE move.
-            } else {
-                initGame(); // Back to start
-                return;
+                // UI 绑定
+                document.getElementById('difficulty-slider').addEventListener('input', (e) => {
+                    this.aiLevel = parseInt(e.target.value);
+                    document.getElementById('difficulty-val').innerText = this.aiLevel;
+                });
             }
-            
-            // Correct Undo Logic:
-            // Ideally, history stores the state BEFORE the move.
-            // Let's fix quickly:
-            // Actually, just re-init and replay is safest but slow.
-            // Let's just restart for this demo or implement proper snapshots.
-            // Re-implementation for robustness:
-            // Just initGame() is mapped above.
-            // Let's make history a stack of board states.
+
+            initWorker() {
+                const blob = new Blob([document.getElementById('worker-code').textContent], { type: "text/javascript" });
+                this.aiWorker = new Worker(URL.createObjectURL(blob));
+                
+                this.aiWorker.onmessage = (e) => {
+                    const data = e.data;
+                    if (data.type === 'progress') {
+                        document.getElementById('ai-stats').innerText = `深度: ${data.depth} | 节点: ${(data.nodes/1000).toFixed(1)}k | 耗时: ${data.time}ms`;
+                        document.getElementById('ai-eval').innerText = `评估: ${data.score}`;
+                        document.getElementById('ai-eval').classList.remove('hidden');
+                    } else if (data.type === 'done') {
+                        this.isThinking = false;
+                        document.getElementById('ai-thinking').classList.add('hidden');
+                        document.getElementById('status-text').innerText = (this.turn === BLACK ? "轮到黑棋" : "轮到白棋");
+                        
+                        if (data.move !== -1) {
+                            this.makeMove(data.move);
+                        } else {
+                            // AI Pass
+                            this.passTurn();
+                        }
+                    }
+                };
+            }
+
+            initBoardUI() {
+                const boardEl = document.getElementById('board');
+                const dotsEl = document.getElementById('dots-container');
+                boardEl.innerHTML = '';
+                dotsEl.innerHTML = '';
+
+                // 生成格子
+                for (let i = 0; i < 64; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'w-full h-full bg-green-700 relative cursor-pointer hover:bg-green-600 transition-colors duration-200 flex items-center justify-center';
+                    cell.dataset.idx = i;
+                    cell.onclick = () => this.handleUserClick(i);
+                    
+                    // 棋子元素
+                    const disc = document.createElement('div');
+                    disc.className = 'w-[80%] h-[80%] rounded-full transition-all duration-500 transform-style-3d';
+                    disc.id = `disc-${i}`;
+                    
+                    // 棋子正面 (黑)
+                    const blackFace = document.createElement('div');
+                    blackFace.className = 'absolute inset-0 bg-black rounded-full backface-hidden piece-shadow border-2 border-gray-700';
+                    // 棋子反面 (白)
+                    const whiteFace = document.createElement('div');
+                    whiteFace.className = 'absolute inset-0 bg-white rounded-full backface-hidden rotate-y-180 piece-shadow border-2 border-gray-200';
+
+                    disc.appendChild(blackFace);
+                    disc.appendChild(whiteFace);
+                    cell.appendChild(disc);
+                    boardEl.appendChild(cell);
+                    
+                    // 默认隐藏
+                    this.updateDiscUI(i, EMPTY);
+                }
+
+                // 添加星位 (Dots)
+                const stars = [18, 21, 42, 45];
+                stars.forEach(idx => {
+                    const dot = document.createElement('div');
+                    dot.className = 'dot';
+                    // 计算位置
+                    const row = Math.floor(idx / 8);
+                    const col = idx % 8;
+                    // 使用百分比定位
+                    dot.style.top = `calc(${row * 12.5}% - 4px + 6.25%)`; 
+                    dot.style.left = `calc(${col * 12.5}% - 4px + 6.25%)`;
+                    dotsEl.appendChild(dot);
+                });
+            }
+
+            updateDiscUI(idx, type) {
+                const disc = document.getElementById(`disc-${idx}`);
+                if (type === EMPTY) {
+                    disc.style.opacity = '0';
+                    disc.style.transform = 'scale(0)';
+                } else if (type === BLACK) {
+                    disc.style.opacity = '1';
+                    disc.style.transform = 'scale(1) rotateY(0deg)';
+                } else if (type === WHITE) {
+                    disc.style.opacity = '1';
+                    disc.style.transform = 'scale(1) rotateY(180deg)';
+                }
+            }
+
+            newGame() {
+                this.board.fill(EMPTY);
+                this.board[27] = WHITE;
+                this.board[28] = BLACK;
+                this.board[35] = BLACK;
+                this.board[36] = WHITE;
+                
+                this.turn = BLACK;
+                this.history = [];
+                this.gameOver = false;
+                this.isThinking = false;
+                
+                this.renderBoard();
+                this.updateStatus();
+                this.checkTurn();
+            }
+
+            renderBoard() {
+                for(let i=0; i<64; i++) {
+                    this.updateDiscUI(i, this.board[i]);
+                }
+                
+                // 辅助：高亮最后一步
+                document.querySelectorAll('#board > div').forEach(d => d.classList.remove('ring', 'ring-yellow-400', 'ring-opacity-50'));
+                if (this.history.length > 0) {
+                    const lastMove = this.history[this.history.length-1].move;
+                    if (lastMove >= 0) {
+                        const cell = document.querySelector(`div[data-idx="${lastMove}"]`);
+                        if(cell) cell.classList.add('ring', 'ring-4', 'ring-yellow-400', 'ring-opacity-50', 'z-10');
+                    }
+                }
+
+                // 高亮可行步 (仅当玩家回合)
+                document.querySelectorAll('.hint-dot').forEach(el => el.remove());
+                if (this.turn === this.userColor && !this.gameOver) {
+                    const moves = this.getValidMoves(this.turn);
+                    moves.forEach(m => {
+                        const cell = document.querySelector(`div[data-idx="${m}"]`);
+                        const hint = document.createElement('div');
+                        hint.className = 'hint-dot w-3 h-3 bg-green-400/50 rounded-full absolute pointer-events-none';
+                        cell.appendChild(hint);
+                    });
+                }
+            }
+
+            updateStatus() {
+                const blackCount = this.board.filter(c => c === BLACK).length;
+                const whiteCount = this.board.filter(c => c === WHITE).length;
+                document.getElementById('score-black').innerText = blackCount;
+                document.getElementById('score-white').innerText = whiteCount;
+                
+                if (this.gameOver) {
+                    let msg = "";
+                    if (blackCount > whiteCount) msg = "黑棋获胜！";
+                    else if (whiteCount > blackCount) msg = "白棋获胜！";
+                    else msg = "平局！";
+                    document.getElementById('status-text').innerText = msg;
+                    document.getElementById('status-text').className = "text-lg font-bold text-yellow-400 animate-bounce";
+                } else {
+                    const colorName = this.turn === BLACK ? "黑棋" : "白棋";
+                    const isUser = this.turn === this.userColor;
+                    document.getElementById('status-text').innerText = `轮到${colorName} ${isUser ? '(你)' : '(AI)'}`;
+                    document.getElementById('status-text').className = `text-lg font-semibold ${this.turn === BLACK ? 'text-gray-300' : 'text-white'}`;
+                }
+            }
+
+            // --- 游戏逻辑 ---
+
+            isValidMove(move, color) {
+                if (this.board[move] !== EMPTY) return false;
+                const opp = 1 - color;
+                const dirs = [-9, -8, -7, -1, 1, 7, 8, 9];
+                
+                for (let dir of dirs) {
+                    let r = Math.floor(move / 8);
+                    let c = move % 8;
+                    let r1 = r + Math.floor(dir/8) + (Math.abs(dir)<2 ? 0 : (dir>0?1:-1)*(Math.abs(dir)%8===0?1:0)); 
+                    // 这种计算 dir 太麻烦，直接硬编码 offset 对应的 dr/dc
+                    let dr=0, dc=0;
+                    if(dir===-9){dr=-1;dc=-1;} else if(dir===-8){dr=-1;dc=0;} else if(dir===-7){dr=-1;dc=1;}
+                    else if(dir===-1){dr=0;dc=-1;} else if(dir===1){dr=0;dc=1;}
+                    else if(dir===7){dr=1;dc=-1;} else if(dir===8){dr=1;dc=0;} else if(dir===9){dr=1;dc=1;}
+
+                    let nr = r + dr, nc = c + dc;
+                    let hasOpp = false;
+                    
+                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        const idx = nr * 8 + nc;
+                        if (this.board[idx] === opp) {
+                            hasOpp = true;
+                        } else if (this.board[idx] === color) {
+                            if (hasOpp) return true;
+                            break;
+                        } else {
+                            break;
+                        }
+                        nr += dr; nc += dc;
+                    }
+                }
+                return false;
+            }
+
+            getValidMoves(color) {
+                let moves = [];
+                for (let i = 0; i < 64; i++) {
+                    if (this.isValidMove(i, color)) moves.push(i);
+                }
+                return moves;
+            }
+
+            flip(move, color) {
+                const opp = 1 - color;
+                let flipped = [];
+                const dirs = [-9, -8, -7, -1, 1, 7, 8, 9];
+                
+                // 简单的 flip 逻辑，不需要位运算那么快，因为只执行一次
+                for (let dir of dirs) {
+                    let dr=0, dc=0;
+                    if(dir===-9){dr=-1;dc=-1;} else if(dir===-8){dr=-1;dc=0;} else if(dir===-7){dr=-1;dc=1;}
+                    else if(dir===-1){dr=0;dc=-1;} else if(dir===1){dr=0;dc=1;}
+                    else if(dir===7){dr=1;dc=-1;} else if(dir===8){dr=1;dc=0;} else if(dir===9){dr=1;dc=1;}
+
+                    let r = Math.floor(move / 8);
+                    let c = move % 8;
+                    let nr = r + dr, nc = c + dc;
+                    let potential = [];
+                    
+                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        const idx = nr * 8 + nc;
+                        if (this.board[idx] === opp) {
+                            potential.push(idx);
+                        } else if (this.board[idx] === color) {
+                            if (potential.length > 0) flipped.push(...potential);
+                            break;
+                        } else {
+                            break;
+                        }
+                        nr += dr; nc += dc;
+                    }
+                }
+                return flipped;
+            }
+
+            makeMove(move) {
+                // 保存历史
+                this.history.push({
+                    board: [...this.board],
+                    turn: this.turn,
+                    move: move
+                });
+
+                this.board[move] = this.turn;
+                const flipped = this.flip(move, this.turn);
+                flipped.forEach(idx => this.board[idx] = this.turn);
+                
+                this.turn = 1 - this.turn;
+                this.renderBoard();
+                this.updateStatus();
+                
+                // 延时一点检查，让动画播放
+                setTimeout(() => this.checkTurn(), 300);
+            }
+
+            passTurn() {
+                console.log("Pass");
+                // 双方都无棋可走？
+                if (this.getValidMoves(1-this.turn).length === 0) {
+                    this.gameOver = true;
+                    this.updateStatus();
+                    return;
+                }
+
+                this.history.push({
+                    board: [...this.board],
+                    turn: this.turn,
+                    move: -1 // pass
+                });
+                
+                this.turn = 1 - this.turn;
+                this.updateStatus();
+                setTimeout(() => this.checkTurn(), 500);
+            }
+
+            checkTurn() {
+                if (this.gameOver) return;
+                
+                const validMoves = this.getValidMoves(this.turn);
+                if (validMoves.length === 0) {
+                    // 连 Pass 检查
+                    const oppMoves = this.getValidMoves(1 - this.turn);
+                    if (oppMoves.length === 0) {
+                        this.gameOver = true;
+                        this.updateStatus();
+                        return;
+                    }
+                    alert((this.turn === BLACK ? "黑方" : "白方") + "无子可下，跳过回合");
+                    this.passTurn();
+                    return;
+                }
+
+                if (this.turn !== this.userColor) {
+                    // AI 回合
+                    this.runAI();
+                } else {
+                    this.renderBoard(); // 显示提示点
+                }
+            }
+
+            handleUserClick(idx) {
+                if (this.gameOver || this.turn !== this.userColor || this.isThinking) return;
+                if (!this.isValidMove(idx, this.turn)) return;
+                
+                this.makeMove(idx);
+            }
+
+            runAI() {
+                this.isThinking = true;
+                document.getElementById('ai-thinking').classList.remove('hidden');
+                document.getElementById('status-text').innerText = "AI 正在思考...";
+                
+                // 转换棋盘为 BigInt
+                let b = 0n, w = 0n;
+                for(let i=0; i<64; i++) {
+                    if (this.board[i] === BLACK) b |= (1n << BigInt(i));
+                    else if (this.board[i] === WHITE) w |= (1n << BigInt(i));
+                }
+
+                this.aiWorker.postMessage({
+                    type: 'think',
+                    black: b.toString(), // BigInt 传给 Worker 最好转字符串
+                    white: w.toString(),
+                    color: this.turn,
+                    level: this.aiLevel
+                });
+            }
+
+            undo() {
+                if (this.history.length === 0 || this.isThinking) return;
+                // 悔棋通常悔两步（回到自己回合）
+                let target = this.history.length - 1;
+                // 如果当前是 AI 回合，回退一步；如果是玩家回合，回退两步
+                if (this.turn !== this.userColor) {
+                    target = this.history.length - 1;
+                } else {
+                    target = this.history.length - 2;
+                }
+                
+                if (target < 0) {
+                    // 回到初始
+                    this.newGame();
+                    return;
+                }
+
+                const state = this.history[target];
+                this.board = [...state.board];
+                this.turn = state.turn;
+                this.history = this.history.slice(0, target);
+                this.gameOver = false;
+                this.renderBoard();
+                this.updateStatus();
+            }
+
+            switchSide() {
+                if (this.history.length > 0) {
+                    if(!confirm("换边将重新开始游戏，确定吗？")) return;
+                }
+                this.userColor = 1 - this.userColor;
+                this.newGame();
+                // 如果换边后玩家是白棋，AI (黑) 先走
+                if (this.userColor === WHITE) {
+                    setTimeout(() => this.runAI(), 500);
+                }
+            }
         }
-    };
-    
-    // Fix undo for this robust implementation
-    // We will override the history logic slightly in init/move
-    // Better Undo:
-    let stateStack = [];
-    
-    function saveState() {
-        stateStack.push({
-            board: [...board],
-            turn: turn
-        });
-    }
 
-    // Hook into init
-    const originalInit = initGame;
-    initGame = function() {
-        stateStack = [];
-        originalInit();
-        saveState();
-    }
-    
-    // Hook into execute (wrapper)
-    const originalUserMove = userMove;
-    userMove = function(i) {
-        saveState();
-        originalUserMove(i);
-    }
-
-    // Handle AI hook in worker response
-    // Note: History array in UI function was visual only. `stateStack` is logical.
-    
-    document.getElementById('btn-undo').onclick = () => {
-        if (gameActive && stateStack.length > 2 && turn !== aiColor) {
-             // Pop current state (waiting for user)
-             stateStack.pop();
-             // Pop AI move state
-             stateStack.pop();
-             // Restore
-             let state = stateStack[stateStack.length - 1];
-             board = [...state.board];
-             turn = state.turn;
-             history = []; // Clear visual history for arrows to avoid confusion
-             updateUI();
-             document.getElementById('game-status').textContent = "Undo successful.";
-        }
-    };
-
-    document.getElementById('btn-switch').onclick = () => {
-        if(confirm('Switch sides and restart?')) {
-            aiColor = aiColor === 1 ? 2 : 1; // Swap
-            initGame();
-        }
-    };
-
-    // Start
-    initWorker();
-    initGame();
-
-</script>
+        // 启动游戏
+        const game = new OthelloGame();
+    </script>
 </body>
 </html>
