@@ -188,20 +188,20 @@
 
         // Kogge-Stone 算法生成合法走法
         function getMoves(own, opp) {
-            let empty = ~(own | opp);
+            // FIX: 严格限制 empty 为 64 位无符号整数，防止 ~ 运算产生无限前导 1 导致的干扰
+            let empty = ~(own | opp) & 0xffffffffffffffffn;
             let candidates = 0n;
             
             // 8个方向的位移生成器
-            // 修复 BUG: 之前 NE 和 NW 的掩码写反了，导致对角线移动会发生“穿墙” (H列穿到A列)
             const shifts = [
                 (b) => (b & NOT_H_FILE) << 1n, // East (+1)
                 (b) => (b & NOT_A_FILE) >> 1n, // West (-1)
                 (b) => (b << 8n),              // South (+8)
                 (b) => (b >> 8n),              // North (-8)
                 (b) => (b & NOT_H_FILE) << 9n, // SouthEast (+9)
-                (b) => (b & NOT_H_FILE) >> 7n, // NorthEast (-7) (注意: H列向右上会越界到下一行A列，必须 mask H)
+                (b) => (b & NOT_H_FILE) >> 7n, // NorthEast (-7)
                 (b) => (b & NOT_A_FILE) << 7n, // SouthWest (+7)
-                (b) => (b & NOT_A_FILE) >> 9n  // NorthWest (-9) (注意: A列向左上会越界到上一行H列，必须 mask A)
+                (b) => (b & NOT_A_FILE) >> 9n  // NorthWest (-9)
             ];
 
             for (let shift of shifts) {
@@ -218,7 +218,6 @@
         }
 
         // 计算翻转的棋子 (不改变状态，只返回翻转位的掩码)
-        // 修正版：移除了导致死循环的错误代码块
         function getFlips(move, own, opp) {
             let flips = 0n;
             // 逐格扫描，确保准确性
@@ -262,11 +261,6 @@
         // --- 评估函数 ---
 
         // 位置权重图 (8x8)
-        // 100, -20, 10,  5,  5, 10, -20, 100
-        // -20, -50, -2, -2, -2, -2, -50, -20
-        //  10,  -2, -1, -1, -1, -1,  -2,  10
-        //   5,  -2, -1, -1, -1, -1,  -2,   5
-        // ... 对称
         const WEIGHTS = [
              100, -20, 10,  5,  5, 10, -20, 100,
              -20, -50, -2, -2, -2, -2, -50, -20,
@@ -282,7 +276,6 @@
             let score = 0;
 
             // 1. 位置权重
-            // 这部分可以用位操作优化，但循环 64 次在 JS 中依然很快
             let myPos = own;
             let opPos = opp;
             for(let i=0; i<64; i++) {
@@ -293,22 +286,12 @@
             }
 
             // 2. 行动力 (Mobility)
-            // 能够走的步数越多越好，限制对手越好
             let myMob = popcnt(ownMoves);
             let opMob = popcnt(oppMoves);
-            // 动态权重：前期行动力重要，后期棋子数重要
             let mobWeight = (emptyCount > 20) ? 15 : 5;
             score += (myMob - opMob) * mobWeight;
 
-            // 3. 潜在行动力 (Frontier Disks) - 简化的
-            // 靠近空位的棋子通常不好
-            // 此处省略复杂位运算，用Mobility大致覆盖
-
-            // 4. 奇偶性 (Parity)
-            // 如果空位是偶数，最后一步是后手下（通常有利）
-            // 简单处理：如果是最后几步，给予最后下子的一方加分
-
-            // 5. 棋子差 (Disc Difference) - 仅在终局前非常接近时或终局计算
+            // 3. 棋子差 (Disc Difference) - 仅在终局前非常接近时或终局计算
             if (emptyCount < 10) {
                 score += (popcnt(own) - popcnt(opp)) * 10;
             }
@@ -326,7 +309,6 @@
         function search(own, opp, turn, depth, alpha, beta, passed) {
             nodes++;
             
-            // 定期检查时间 (每 2048 个节点)
             if ((nodes & 2047) === 0) {
                 if (Date.now() - startTime > timeLimit) {
                     stopSearch = true;
@@ -334,22 +316,16 @@
             }
             if (stopSearch) return 0;
 
-            // 哈希检查 (置换表)
-            // 简化：这里不做完整 Zobrist，因为 JS Map 对于大数据量存取有开销
-            // 若要极致性能，需实现基于 ArrayBuffer 的 TT
-            
             let legalMoves = getMoves(own, opp);
 
             // 游戏结束判定
             if (legalMoves === 0n) {
                 if (passed) {
-                    // 双方都 pass，游戏结束
                     let diff = popcnt(own) - popcnt(opp);
                     if (diff > 0) return 10000 + diff;
                     if (diff < 0) return -10000 + diff;
                     return 0;
                 }
-                // 我方无棋可走，让给对方
                 return -search(opp, own, 1-turn, depth, -beta, -alpha, true);
             }
 
@@ -364,32 +340,31 @@
             let moves = [];
             let temp = legalMoves;
             while (temp > 0n) {
-                // 提取最低位的 1 (LSB)
-                let lsb = temp & -temp; // BigInt 负数是补码
-                // 找出位置索引
-                // BigInt 没有 Math.log2，需要快速转换
-                let idx = -1;
-                // 简单查找（或者使用去重表）
-                // 这里的位操作转索引在 JS BigInt 中稍慢，但可接受
-                let str = lsb.toString(2);
-                idx = str.length - 1; 
+                let lsb = temp & -temp;
+                let s = lsb.toString(2);
+                let idx = s.length - 1; 
 
-                // 启发式排序分数
-                let sortScore = 0;
-                // 角点优先
-                if (lsb & MASK_CORNER) sortScore = 1000;
-                // 避免 C/X 位 (简单判断)
-                else if (lsb & MASK_X_SQUARES) sortScore = -100;
-                else if (lsb & MASK_C_SQUARES) sortScore = -50;
+                // --- FIX: 强制校验 ---
+                // 虽然 Kogge-Stone 很快，但必须确保这一步真的能翻转棋子
+                // 这能杜绝 AI 下出“不吃子”的伪合法步
+                if (getFlips(idx, own, opp) !== 0n) {
+                    let sortScore = 0;
+                    if (lsb & MASK_CORNER) sortScore = 1000;
+                    else if (lsb & MASK_X_SQUARES) sortScore = -100;
+                    else if (lsb & MASK_C_SQUARES) sortScore = -50;
+                    moves.push({ bits: lsb, idx: idx, score: sortScore });
+                }
                 
-                moves.push({ bits: lsb, idx: idx, score: sortScore });
-                temp ^= lsb; // 清除最低位
+                temp ^= lsb;
             }
 
-            // 排序：分数高的在前
+            // 如果校验后发现没有合法步（罕见但理论可能），按 pass 处理
+            if (moves.length === 0) {
+                return -search(opp, own, 1-turn, depth, -beta, -alpha, true);
+            }
+
             moves.sort((a, b) => b.score - a.score);
 
-            // PVS 核心循环
             let bestScore = -Infinity;
             let b = beta;
             
@@ -397,7 +372,6 @@
                 let m = moves[i];
                 let flips = getFlips(m.idx, own, opp);
                 
-                // 执行走法
                 let newOwn = own | m.bits | flips;
                 let newOpp = opp & ~flips;
 
@@ -405,10 +379,8 @@
                 if (i === 0) {
                     score = -search(newOpp, newOwn, 1-turn, depth - 1, -b, -alpha, false);
                 } else {
-                    // Null window search
                     score = -search(newOpp, newOwn, 1-turn, depth - 1, -alpha - 1, -alpha, false);
                     if (score > alpha && score < beta) {
-                        // Re-search
                         score = -search(newOpp, newOwn, 1-turn, depth - 1, -beta, -alpha, false);
                     }
                 }
@@ -420,7 +392,7 @@
                 }
                 if (score > alpha) {
                     alpha = score;
-                    if (alpha >= beta) break; // Beta 剪枝
+                    if (alpha >= beta) break; 
                 }
             }
 
@@ -430,17 +402,15 @@
         // 终局完美解 (Endgame Solver)
         function solveEndgame(own, opp, alpha, beta, passed) {
             nodes++;
-            // 终局不限时，或者给一个很大的限制
-            // 这里为了防止浏览器卡死，还是保留 stopSearch 检查，但由主线程控制
 
             let legalMoves = getMoves(own, opp);
 
             if (legalMoves === 0n) {
                 if (passed) {
                     let diff = popcnt(own) - popcnt(opp);
-                    if (diff > 0) return 10000 + diff; // 赢
-                    if (diff < 0) return -10000 + diff; // 输
-                    return 0; // 平
+                    if (diff > 0) return 10000 + diff;
+                    if (diff < 0) return -10000 + diff;
+                    return 0;
                 }
                 return -solveEndgame(opp, own, -beta, -alpha, true);
             }
@@ -448,24 +418,24 @@
             let temp = legalMoves;
             let bestScore = -Infinity;
 
-            // Move Ordering is less critical in pure endgame solver but still helps
-            // 直接遍历
             while (temp > 0n) {
                 let lsb = temp & -temp;
-                // 获取索引
                 let s = lsb.toString(2);
                 let idx = s.length - 1; 
                 
-                let flips = getFlips(idx, own, opp);
-                let newOwn = own | lsb | flips;
-                let newOpp = opp & ~flips;
+                // --- FIX: 终局搜索也需要校验 ---
+                if (getFlips(idx, own, opp) !== 0n) {
+                    let flips = getFlips(idx, own, opp);
+                    let newOwn = own | lsb | flips;
+                    let newOpp = opp & ~flips;
 
-                let val = -solveEndgame(newOpp, newOwn, -beta, -alpha, false);
-                
-                if (val > bestScore) bestScore = val;
-                if (val > alpha) {
-                    alpha = val;
-                    if (alpha >= beta) break;
+                    let val = -solveEndgame(newOpp, newOwn, -beta, -alpha, false);
+                    
+                    if (val > bestScore) bestScore = val;
+                    if (val > alpha) {
+                        alpha = val;
+                        if (alpha >= beta) break;
+                    }
                 }
                 temp ^= lsb;
             }
@@ -475,9 +445,7 @@
 
         // --- 主接口 ---
         
-        // 迭代加深搜索
         function getBestMove(boardBlackStr, boardWhiteStr, color, level) {
-            // 解析 BigInt
             let own = (color === BLACK) ? BigInt(boardBlackStr) : BigInt(boardWhiteStr);
             let opp = (color === BLACK) ? BigInt(boardWhiteStr) : BigInt(boardBlackStr);
             
@@ -487,60 +455,50 @@
 
             let emptyCount = 64 - popcnt(own | opp);
             
-            // 难度配置
             let maxDepth;
             if (level <= 2) maxDepth = 1;
             else if (level <= 4) maxDepth = 4;
             else if (level <= 6) maxDepth = 6;
             else if (level <= 8) maxDepth = 10;
-            else maxDepth = 20; // 几乎无限制
+            else maxDepth = 20;
 
-            // 时间限制 (毫秒)
-            if (level >= 10) timeLimit = 5000; // 最强模式给5秒
-            else timeLimit = 1500; // 普通模式快一点
+            if (level >= 10) timeLimit = 5000;
+            else timeLimit = 1500;
 
-            // 终局模式触发
-            // 如果剩余步数很少，且等级高，直接全算
             if (emptyCount <= 16 && level >= 9) {
-                // 切换到 SolveEndgame 逻辑，不限制深度
-                // 这里简单复用 search 结构但深度设为 64
-                // 为了 UX，这里如果步数非常少(<=14)可以全搜，稍微多一点用深层搜索
                 maxDepth = 64;
                 timeLimit = 10000;
             }
 
             let legalMoves = getMoves(own, opp);
-            if (legalMoves === 0n) return -1; // Pass
+            if (legalMoves === 0n) return -1;
 
-            // 生成候选走法列表
             let moves = [];
             let temp = legalMoves;
             while (temp > 0n) {
                 let lsb = temp & -temp;
                 let s = lsb.toString(2);
                 let idx = s.length - 1;
-                moves.push({ bits: lsb, idx: idx });
+                
+                // --- FIX: 顶层强制过滤非法步 ---
+                // 这是最关键的修复，确保返回给 UI 的步法绝对合法
+                if (getFlips(idx, own, opp) !== 0n) {
+                    moves.push({ bits: lsb, idx: idx });
+                }
                 temp ^= lsb;
             }
 
-            // 单一步骤直接返回
+            if (moves.length === 0) return -1;
             if (moves.length === 1) return moves[0].idx;
 
             let bestMove = moves[0].idx;
             let currentBestScore = -Infinity;
 
-            // 迭代加深循环
             for (let d = 1; d <= maxDepth; d++) {
                 let alpha = -Infinity;
                 let beta = Infinity;
-                
-                // 当前深度的最佳候选
                 let iterBestMove = -1;
                 let iterBestScore = -Infinity;
-
-                // 根节点搜索
-                // 对第一层进行排序优化？(利用上一层的结果)
-                // 简单起见，按顺序搜
 
                 for (let i = 0; i < moves.length; i++) {
                     let m = moves[i];
@@ -549,17 +507,15 @@
                     let newOpp = opp & ~flips;
 
                     let score;
-                    // 若是终局模式，直接递归到底
                     if (emptyCount <= 14 && level >= 9) {
                          score = -solveEndgame(newOpp, newOwn, -beta, -alpha, false);
                     } else {
                          score = -search(newOpp, newOwn, 1-color, d - 1, -beta, -alpha, false);
                     }
 
-                    // 检查超时
                     if (stopSearch) break;
 
-                    m.lastScore = score; // 记录分数用于下一轮排序（简单实现）
+                    m.lastScore = score;
 
                     if (score > iterBestScore) {
                         iterBestScore = score;
@@ -570,19 +526,14 @@
 
                 if (stopSearch) break;
 
-                // 完成了一整层的搜索
                 bestMove = iterBestMove;
                 currentBestScore = iterBestScore;
                 
-                // 将上一层最好的步法排到最前 (简单 Move Ordering)
                 moves.sort((a, b) => b.lastScore - a.lastScore);
 
-                // 发送进度
                 postMessage({ type: 'progress', depth: d, nodes: nodes, time: Date.now() - startTime, score: currentBestScore });
                 
-                // 如果找到必胜路径 (分数极大)
                 if (currentBestScore > 9000) break;
-                // 如果终局全搜完成
                 if (d >= emptyCount) break;
             }
 
@@ -786,36 +737,8 @@
 
             isValidMove(move, color) {
                 if (this.board[move] !== EMPTY) return false;
-                const opp = 1 - color;
-                const dirs = [-9, -8, -7, -1, 1, 7, 8, 9];
-                
-                for (let dir of dirs) {
-                    let r = Math.floor(move / 8);
-                    let c = move % 8;
-                    let r1 = r + Math.floor(dir/8) + (Math.abs(dir)<2 ? 0 : (dir>0?1:-1)*(Math.abs(dir)%8===0?1:0)); 
-                    // 这种计算 dir 太麻烦，直接硬编码 offset 对应的 dr/dc
-                    let dr=0, dc=0;
-                    if(dir===-9){dr=-1;dc=-1;} else if(dir===-8){dr=-1;dc=0;} else if(dir===-7){dr=-1;dc=1;}
-                    else if(dir===-1){dr=0;dc=-1;} else if(dir===1){dr=0;dc=1;}
-                    else if(dir===7){dr=1;dc=-1;} else if(dir===8){dr=1;dc=0;} else if(dir===9){dr=1;dc=1;}
-
-                    let nr = r + dr, nc = c + dc;
-                    let hasOpp = false;
-                    
-                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
-                        const idx = nr * 8 + nc;
-                        if (this.board[idx] === opp) {
-                            hasOpp = true;
-                        } else if (this.board[idx] === color) {
-                            if (hasOpp) return true;
-                            break;
-                        } else {
-                            break;
-                        }
-                        nr += dr; nc += dc;
-                    }
-                }
-                return false;
+                const flipped = this.flip(move, color);
+                return flipped.length > 0;
             }
 
             getValidMoves(color) {
@@ -831,7 +754,6 @@
                 let flipped = [];
                 const dirs = [-9, -8, -7, -1, 1, 7, 8, 9];
                 
-                // 简单的 flip 逻辑，不需要位运算那么快，因为只执行一次
                 for (let dir of dirs) {
                     let dr=0, dc=0;
                     if(dir===-9){dr=-1;dc=-1;} else if(dir===-8){dr=-1;dc=0;} else if(dir===-7){dr=-1;dc=1;}
@@ -860,6 +782,19 @@
             }
 
             makeMove(move) {
+                // FIX: 双重保险，前端也校验
+                if (this.board[move] !== EMPTY) {
+                     console.error("Attempted to move on non-empty square:", move);
+                     return;
+                }
+                
+                const flipped = this.flip(move, this.turn);
+                if (flipped.length === 0) {
+                     console.error("Illegal move: No pieces flipped!", move);
+                     alert("非法移动！AI 试图落子在无法吃子的地方。");
+                     return;
+                }
+
                 // 保存历史
                 this.history.push({
                     board: [...this.board],
@@ -868,7 +803,6 @@
                 });
 
                 this.board[move] = this.turn;
-                const flipped = this.flip(move, this.turn);
                 flipped.forEach(idx => this.board[idx] = this.turn);
                 
                 this.turn = 1 - this.turn;
